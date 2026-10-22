@@ -16,6 +16,13 @@ GitHub → Actions → firmware → 最新一次运行 → Artifacts → 005-sig
 
 里面是 `005-signal-log-full.bin` 和 `SHA256SUMS.txt`。下载解压到仓库的 `build/` 目录。
 
+每次构建成功还会把同一个镜像发布成固定链接（不需要登录、不会过期）：
+
+```
+https://github.com/k-macao/05-folo/releases/download/firmware-latest/005-signal-log-full.bin
+https://github.com/k-macao/05-folo/releases/download/firmware-latest/SHA256SUMS.txt
+```
+
 **B. 本地编译**
 
 ```bash

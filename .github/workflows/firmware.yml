@@ -64,6 +64,17 @@ jobs:
             SHA256SUMS.txt
           retention-days: 30
 
+      - name: Publish firmware release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=firmware-latest
+          notes=$(printf '自动构建的 005 SIGNAL.LOG 固件（ESP-IDF v5.5.3 / esp32c3）。\n\n提交: %s\n\n烧录：\n```\nesptool.py --chip esp32c3 -p /dev/ttyACM0 -b 460800 write_flash 0x0 005-signal-log-full.bin\n```\n或在本仓库执行 ./tools/flash.sh' "${{ github.sha }}")
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+            --title "005 SIGNAL.LOG firmware (latest)" --prerelease --notes "$notes"
+          gh release upload "$tag" build/005-signal-log-full.bin SHA256SUMS.txt --clobber
+          gh release edit "$tag" --notes "$notes"
+
       - name: Publish build log on failure
         if: failure()
         env:
