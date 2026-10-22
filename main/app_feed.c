@@ -30,7 +30,7 @@ static const char *TAG = "app_feed";
 #define FEED_INIT_BUF_BYTES  4096
 #define FEED_HTTP_TIMEOUT_MS 9000
 #define MAX_FEED_CANDIDATES  5
-#define URL_BUF_BYTES        224
+#define URL_BUF_BYTES        360
 
 #ifndef CONFIG_APP_FEED_URL_FALLBACK
 #define CONFIG_APP_FEED_URL_FALLBACK ""
@@ -277,17 +277,17 @@ static void add_github_raw_mirrors(char list[][URL_BUF_BYTES], int *count, const
     snprintf(path, sizeof path, "%s", s3 + 1);
 
     char mirror[URL_BUF_BYTES];
-    snprintf(mirror, sizeof mirror, "https://testingcf.jsdelivr.net/gh/%s/%s@%s/%s",
-             owner, repo, ref, path);
-    add_candidate(list, count, mirror);
+    int n = snprintf(mirror, sizeof mirror, "https://testingcf.jsdelivr.net/gh/%s/%s@%s/%s",
+                     owner, repo, ref, path);
+    if (n > 0 && (size_t)n < sizeof mirror) add_candidate(list, count, mirror);
 
-    snprintf(mirror, sizeof mirror, "https://gcore.jsdelivr.net/gh/%s/%s@%s/%s",
-             owner, repo, ref, path);
-    add_candidate(list, count, mirror);
+    n = snprintf(mirror, sizeof mirror, "https://gcore.jsdelivr.net/gh/%s/%s@%s/%s",
+                 owner, repo, ref, path);
+    if (n > 0 && (size_t)n < sizeof mirror) add_candidate(list, count, mirror);
 
-    snprintf(mirror, sizeof mirror, "https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
-             owner, repo, path, ref);
-    add_candidate(list, count, mirror);
+    n = snprintf(mirror, sizeof mirror, "https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
+                 owner, repo, path, ref);
+    if (n > 0 && (size_t)n < sizeof mirror) add_candidate(list, count, mirror);
 }
 
 app_feed_result_t app_feed_fetch(intel_feed_t *out, int *dropped,
