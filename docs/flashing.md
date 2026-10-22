@@ -23,6 +23,12 @@ https://github.com/k-macao/05-folo/releases/download/firmware-latest/005-signal-
 https://github.com/k-macao/05-folo/releases/download/firmware-latest/SHA256SUMS.txt
 ```
 
+**A2. 带自己 Wi-Fi 的私有镜像（推荐日常使用）**
+
+Actions → firmware → **Run workflow**，填 `wifi_ssid` / `feed_url`（可选 `feed_url_fallback`），
+密码从仓库 Secret `WIFI_PASSWORD` 自动注入。产物只在本次运行的 **Artifacts** 里，
+**不会**发到公开 release——镜像里含 Wi-Fi 密码，别转发。
+
 **B. 本地编译**
 
 ```bash

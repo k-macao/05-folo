@@ -117,7 +117,7 @@ FoloToy 官方的[安装社区玩法](https://ai-passport.folotoy.cn/guides/flas
 
 ```bash
 idf.py set-target esp32c3
-idf.py menuconfig          # → 005 Signal Log：Wi-Fi SSID / 密码 / feed URL / 刷新间隔
+idf.py menuconfig          # → 005 Signal Log：Wi-Fi SSID / 密码 / feed URL / 备用 URL / 刷新间隔
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
@@ -144,7 +144,9 @@ idf.py merge-bin -o 005-signal-log-full.bin   # 产物落在 build/ 下
 
    `make_feed.py` 会丢掉没有标题、没有时间、`time_grade` 不可信或时间无法解析的条目，
    丢掉超出窗口 / 来自未来的条目，按时间倒序取前 12 条，并按屏幕格数截断长文本。
-3. 托管：GitHub Pages、对象存储、任意静态站点都行，把 URL 填进 `CONFIG_APP_FEED_URL`。
+3. 托管：GitHub Pages、对象存储、任意静态站点都行，把 URL 填进 `CONFIG_APP_FEED_URL`，
+   再给一个 `CONFIG_APP_FEED_URL_FALLBACK`（可选，主地址失败时自动重试；CDN 有缓存，
+   镜像只适合当备用）。
    feed 体积上限 24 KiB（12 条中文情报约 3–4 KiB）。
 
 ## 目录结构

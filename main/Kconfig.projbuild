@@ -2,22 +2,37 @@ menu "005 Signal Log"
 
     config APP_WIFI_SSID
         string "Wi-Fi SSID (2.4 GHz)"
-        default "your-ssid"
+        default "blublu"
         help
-            设备只支持 2.4 GHz。填好后重新 idf.py build flash monitor。
+            设备只支持 2.4 GHz。这里的默认值只是"开箱即用"的值，
+            真正出门的镜像由 CI 用 workflow 输入覆盖。
 
     config APP_WIFI_PASSWORD
         string "Wi-Fi password"
         default ""
         help
-            留空表示开放网络。
+            仓库里永远留空：密码由 GitHub Actions 的 WIFI_PASSWORD secret 在
+            构建时注入，不会进入提交、日志或 release。
+            本地编译时在 menuconfig 里填，或用
+            SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.local" 覆盖。
 
     config APP_FEED_URL
         string "005 feed URL"
-        default "https://k-macao.github.io/05-folo/feed.json"
+        default "https://raw.githubusercontent.com/k-macao/05-folo/main/preview/feed.json"
         help
-            指向 tools/make_feed.py 生成、托管在 GitHub Pages / 任意静态服务器上的
-            feed.json。支持 https://（内置证书 bundle）和 http://。
+            指向 tools/make_feed.py 生成、托管在任何静态位置上的 feed.json。
+            默认值是仓库里那份示例 feed（raw.githubusercontent.com，HTTPS），
+            换到自己的 005 输出时改这里或 CI 的 feed_url 输入。
+            支持 https://（内置证书 bundle）和 http://。
+
+    config APP_FEED_URL_FALLBACK
+        string "005 feed URL (fallback, optional)"
+        default "https://cdn.jsdelivr.net/gh/k-macao/05-folo@main/preview/feed.json"
+        help
+            主地址失败时自动再试这个地址。留空表示不重试备用地址。
+            小设备只有一个 feed 地址时，raw.githubusercontent.com 偶发不可达就整屏
+            NO SIGNAL；给一个镜像地址（jsDelivr CDN / 自己的服务器）能省掉重烧一次。
+            注意 CDN 有缓存：真 005 输出请改成能即时更新的地址。
 
     config APP_REFRESH_MINUTES
         int "Refresh period (minutes)"
