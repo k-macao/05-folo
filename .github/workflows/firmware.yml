@@ -1,0 +1,53 @@
+name: firmware
+
+# 在 GitHub 的 runner 上编译固件（本仓库的本地沙箱既没有 ESP-IDF 工具链，
+# 也没有 USB 直通，所以镜像在这里产出，烧录在你自己电脑上做）。
+#
+# 产物：005-signal-log-full.bin —— 从 0x0 起的合并镜像，可直接用 esptool 写入。
+#   esptool.py --chip esp32c3 -p /dev/ttyACM0 -b 460800 write_flash 0x0 005-signal-log-full.bin
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - "main/**"
+      - "components/**"
+      - "sdkconfig.defaults"
+      - "partitions.csv"
+      - "CMakeLists.txt"
+      - ".github/workflows/firmware.yml"
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and merge image (ESP-IDF 5.5.3)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v5.5.3
+          target: esp32c3
+          command: >-
+            idf.py build &&
+            idf.py merge-bin -o build/005-signal-log-full.bin &&
+            idf.py size
+
+      - name: Checksums and sizes
+        run: |
+          ls -l build/*.bin
+          sha256sum build/005-signal-log-full.bin | tee build/SHA256SUMS.txt
+
+      - name: Upload merged image
+        uses: actions/upload-artifact@v4
+        with:
+          name: 005-signal-log-full
+          path: |
+            build/005-signal-log-full.bin
+            build/SHA256SUMS.txt
+          retention-days: 30
