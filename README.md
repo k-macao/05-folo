@@ -122,7 +122,7 @@ idf.py -p /dev/ttyACM0 flash monitor
 合并镜像（按 AI Passport 的烧录约定，从 `0x0` 烧）：
 
 ```bash
-idf.py merge-bin -o build/005-signal-log-full.bin
+idf.py merge-bin -o 005-signal-log-full.bin   # 产物落在 build/ 下
 ```
 
 刷新间隔默认 10 分钟（`CONFIG_APP_REFRESH_MINUTES`），与 005 的 180 分钟窗口配合，

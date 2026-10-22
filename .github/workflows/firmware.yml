@@ -42,7 +42,7 @@ jobs:
           # 日志必须写到挂载进来的仓库目录（容器里的 /tmp 不是宿主机的 /tmp）。
           command: |
             ( idf.py build &&
-              idf.py merge-bin -o build/005-signal-log-full.bin &&
+              idf.py merge-bin -o 005-signal-log-full.bin &&
               idf.py size ) > build-log.txt 2>&1
             rc=$?
             tail -n 400 build-log.txt

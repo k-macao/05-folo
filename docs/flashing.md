@@ -23,7 +23,7 @@ GitHub → Actions → firmware → 最新一次运行 → Artifacts → 005-sig
 idf.py set-target esp32c3
 idf.py menuconfig              # 005 Signal Log → Wi-Fi / feed URL / 刷新间隔
 idf.py build
-idf.py merge-bin -o build/005-signal-log-full.bin
+idf.py merge-bin -o 005-signal-log-full.bin   # 产物落在 build/ 下
 ```
 
 ## 烧录
