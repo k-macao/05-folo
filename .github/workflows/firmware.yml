@@ -1,15 +1,31 @@
 name: firmware
 
-# 在 GitHub 的 runner 上编译固件并产出合并镜像（本仓库的本地沙箱既没有 ESP-IDF 工具链，
-# 也没有 USB 直通，所以镜像在这里产出、烧录在你自己的电脑上做）。
+# 在 GitHub 的 runner 上编译固件并产出合并镜像（本仓库的开发沙箱既没有 ESP-IDF 工具链，
+# 也没有 USB 直通，所以镜像在这里产出、烧录在自己的电脑上做）。
 #
 # 产物：005-signal-log-full.bin —— 从 0x0 起的合并镜像，可直接用 esptool 写入，
 # 或者 ./tools/flash.sh 一键完成。
 #
-# 构建日志：正常时在 Actions 页面；失败时会把最后 120 行贴到本次提交的提交评论里
-# （Actions 日志下载域名在部分网络下不可达，提交评论走 api.github.com，能稳定读到）。
+# 两种出包方式：
+#   1) push：用仓库里的默认配置（无 Wi-Fi 密码）编译，成功后发布到 firmware-latest
+#      —— 这是"公开的样板镜像"，不含任何私密信息。
+#   2) workflow_dispatch：可填 wifi_ssid / feed_url，密码从 WIFI_PASSWORD secret 注入，
+#      产物只作为 Actions artifact 保存，**不会**进入公开 release（镜像里含 Wi-Fi 密码）。
 on:
   workflow_dispatch:
+    inputs:
+      wifi_ssid:
+        description: "Wi-Fi SSID（2.4 GHz）"
+        type: string
+        default: "blublu"
+      feed_url:
+        description: "feed.json 地址"
+        type: string
+        default: "https://raw.githubusercontent.com/k-macao/05-folo/main/preview/feed.json"
+      feed_url_fallback:
+        description: "备用 feed.json 地址（留空则只用一个）"
+        type: string
+        default: "https://cdn.jsdelivr.net/gh/k-macao/05-folo@main/preview/feed.json"
   push:
     branches: ["**"]
     paths:
@@ -31,8 +47,43 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      WIFI_SSID: ${{ inputs.wifi_ssid || 'blublu' }}
+      FEED_URL: ${{ inputs.feed_url || 'https://raw.githubusercontent.com/k-macao/05-folo/main/preview/feed.json' }}
+      FEED_URL_FALLBACK: ${{ inputs.feed_url_fallback || 'https://cdn.jsdelivr.net/gh/k-macao/05-folo@main/preview/feed.json' }}
     steps:
       - uses: actions/checkout@v4
+
+      # 私密配置只在这个作业的工作区里存在，构建完立即删除；不进提交、不进日志。
+      - name: Prepare credentials (from repository secret)
+        id: prep
+        env:
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD || secrets.WIFI_PASS || secrets.APP_WIFI_PASSWORD }}
+        run: |
+          SSID="${WIFI_SSID}"
+          URL="${FEED_URL}"
+
+          if [ -z "$WIFI_PASSWORD" ]; then
+            echo "::warning::没有取到 Wi-Fi 密码 secret（WIFI_PASSWORD），这次产出的是不带密码的样板镜像"
+            PERSONALIZED=false
+          else
+            echo "::add-mask::$WIFI_PASSWORD"
+            PERSONALIZED=true
+            echo "Wi-Fi 密码已从 secret 注入（长度 ${#WIFI_PASSWORD}，内容不打印）"
+          fi
+
+          {
+            echo "CONFIG_APP_WIFI_SSID=\"${SSID}\""
+            echo "CONFIG_APP_WIFI_PASSWORD=\"${WIFI_PASSWORD}\""
+            echo "CONFIG_APP_FEED_URL=\"${URL}\""
+            echo "CONFIG_APP_FEED_URL_FALLBACK=\"${FEED_URL_FALLBACK}\""
+          } > sdkconfig.ci.defaults
+
+          echo "personalized=${PERSONALIZED}" >> "$GITHUB_OUTPUT"
+          echo "ssid=${SSID}"                     >> "$GITHUB_OUTPUT"
+          echo "feed_url=${URL}"                  >> "$GITHUB_OUTPUT"
+          echo "feed_url_fallback=${FEED_URL_FALLBACK}" >> "$GITHUB_OUTPUT"
+          echo "ssid=${SSID} / feed=${URL} / password=$([ "$PERSONALIZED" = true ] && echo injected || echo none)"
 
       - name: Build and merge image (ESP-IDF 5.5.3)
         uses: espressif/esp-idf-ci-action@v1
@@ -40,12 +91,21 @@ jobs:
           esp_idf_version: v5.5.3
           target: esp32c3
           # 日志必须写到挂载进来的仓库目录（容器里的 /tmp 不是宿主机的 /tmp）。
+          # sdkconfig.defaults 末尾追加的覆盖项优先级最高。
           command: |
+            cat sdkconfig.ci.defaults >> sdkconfig.defaults
             ( idf.py build &&
               idf.py merge-bin -o 005-signal-log-full.bin ) > build-log.txt 2>&1
             rc=$?
             tail -n 400 build-log.txt
             exit $rc
+
+      - name: Drop credentials from workspace
+        if: always()
+        run: |
+          rm -f sdkconfig.ci.defaults
+          # 构建目录里的 sdkconfig 也含明文密码，顺手清掉
+          rm -f sdkconfig sdkconfig.old
 
       - name: Checksums and sizes
         run: |
@@ -68,16 +128,42 @@ jobs:
             image-report.txt
           retention-days: 30
 
-      - name: Publish firmware release
+      # 公开样板镜像：只有没注入密码时才发，避免私人 Wi-Fi 凭据进入 release。
+      - name: Publish public sample release
+        if: steps.prep.outputs.personalized != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag=firmware-latest
-          notes=$(printf '自动构建的 005 SIGNAL.LOG 固件（ESP-IDF v5.5.3 / esp32c3）。\n\n提交: %s\n\n烧录：\n```\nesptool.py --chip esp32c3 -p /dev/ttyACM0 -b 460800 write_flash 0x0 005-signal-log-full.bin\n```\n或在本仓库执行 ./tools/flash.sh\n\n### 镜像校验\n```\n%s\n```' "${{ github.sha }}" "$(cat image-report.txt)")
+          notes=$(printf '自动构建的 005 SIGNAL.LOG 样板固件（ESP-IDF v5.5.3 / esp32c3，不含 Wi-Fi 密码）。\n\n提交: %s\n\n烧录：\n```\nesptool.py --chip esp32c3 -p /dev/ttyACM0 -b 460800 write_flash 0x0 005-signal-log-full.bin\n```\n或在本仓库执行 ./tools/flash.sh\n\n### 镜像校验\n```\n%s\n```' "${{ github.sha }}" "$(cat image-report.txt)")
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
             --title "005 SIGNAL.LOG firmware (latest)" --prerelease --notes "$notes"
           gh release upload "$tag" build/005-signal-log-full.bin SHA256SUMS.txt image-report.txt --clobber
           gh release edit "$tag" --notes "$notes"
+
+      - name: Summarize
+        run: |
+          {
+            echo "## 005 SIGNAL.LOG firmware"
+            echo
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| SSID | \`${{ steps.prep.outputs.ssid }}\` |"
+            echo "| feed | \`${{ steps.prep.outputs.feed_url }}\` |"
+            echo "| 备用 | \`${{ steps.prep.outputs.feed_url_fallback }}\` |"
+            echo "| 密码 | $([ '${{ steps.prep.outputs.personalized }}' = true ] && echo '已从 secret 注入（不显示）' || echo '未设置') |"
+            echo "| sha256 | \`$(cut -d' ' -f1 SHA256SUMS.txt)\` |"
+            echo
+            echo "下载：本页底部 Artifacts → \`005-signal-log-full\`"
+            if [ '${{ steps.prep.outputs.personalized }}' = true ]; then
+              echo
+              echo "> ⚠️ 这个镜像里含 Wi-Fi 密码，只作为本仓库的私有 artifact 保存，没有发布到 release。不要把 bin 转发出去。"
+            fi
+            echo
+            echo '```'
+            cat image-report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish build log on failure
         if: failure()
