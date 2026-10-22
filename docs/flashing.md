@@ -60,6 +60,26 @@ python3 tools/verify_image.py build/005-signal-log-full.bin
 
 `--erase` 是先整片擦除再写，只有明确要"从零开始"时才用。
 
+### Windows 图形工具（Flash Download Tool）
+
+没有 esptool 时也可以用乐鑫官方 `flash_download_tool`，但必须按下面设，
+否则最常见的结果就是**烧完黑屏**：
+
+| 设置 | 值 | 设错的后果 |
+| --- | --- | --- |
+| ChipType / WorkMode | `ESP32-C3` / `Develop` | — |
+| SPIDownload 文件行 | **只留一行**、左边复选框**打勾**、`005-signal-log-full.bin` | 不打勾 = 根本没写入 |
+| 地址 | **`0x0`**（这是合并镜像，不是单独的 app） | 写 `0x10000` → bootloader 落错位 → 黑屏 |
+| SPI MODE / SPEED / FLASH SIZE | `DIO` / `80MHz` / `64Mbit (8MB)`，**或直接勾 DoNotChgBin** | 工具会按界面值改写镜像头；和编译期不一致可能起不来 |
+| BAUD | `460800`（115200 也行，只是慢） | — |
+
+点 START 后要等到主窗口变**绿色 FINISH** 才算写完。
+
+⚠ **写完必须整机断电重启**：拔掉 USB、关机，等几秒再开机。这个工具结束时
+只打印 `is stub and send flash finish`，不会把 ESP32-C3（原生 USB-Serial-JTAG）
+可靠地复位进应用——芯片还停在 ROM 下载模式（日志里的 `waiting for download`
+就是它），此时屏幕漆黑是正常的，光按复位键可能又回到下载模式。
+
 ## FoloToy 官方的安装入口
 
 FoloToy 的 [安装社区玩法](https://ai-passport.folotoy.cn/guides/flash-official-firmware/)
@@ -81,6 +101,8 @@ FoloToy 的 [安装社区玩法](https://ai-passport.folotoy.cn/guides/flash-off
 
 | 现象 | 先看什么 |
 | --- | --- |
+| 烧完黑屏、无任何显示 | 先**整机断电重启**（见上节）；还黑就抓串口日志（下一行）。注意：开机页在连 Wi-Fi 之前就渲染，所以黑屏和 Wi-Fi/feed 无关，是"固件没跑起来" |
+| 黑屏抓日志的方法 | 同一 COM 口开串口监视（115200，Arduino IDE 串口监视器 / PuTTY / `python -m serial.tools.miniterm COMx 115200` 都行），设备重新上电，看第一屏：反复 `waiting for download` = 还在下载模式；`invalid header` 类 = 地址写错或镜像头被工具改过（按 `0x0` + DoNotChgBin 重烧）；`Guru Meditation` / 反复重启 = 固件崩溃，把整段日志贴回来；日志正常出现 `005 signal log 启动` 但屏不亮 = 显示初始化问题，同样贴日志 |
 | 串口无输出 | 数据线是否只供电；是否 `/dev/cu.usbmodem*`；`idf.py monitor` 用的是 USB-Serial-JTAG |
 | `NO SIGNAL` + `Wi-Fi 未连接` | `menuconfig` 里的 SSID 必须是 2.4 GHz，密码别带引号 |
 | `HTTP 404` | `CONFIG_APP_FEED_URL` 指到了不存在的路径；先用电脑 `curl` 一下同一个 URL |
