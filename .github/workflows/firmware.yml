@@ -42,8 +42,7 @@ jobs:
           # 日志必须写到挂载进来的仓库目录（容器里的 /tmp 不是宿主机的 /tmp）。
           command: |
             ( idf.py build &&
-              idf.py merge-bin -o 005-signal-log-full.bin &&
-              idf.py size ) > build-log.txt 2>&1
+              idf.py merge-bin -o 005-signal-log-full.bin ) > build-log.txt 2>&1
             rc=$?
             tail -n 400 build-log.txt
             exit $rc
@@ -78,7 +77,7 @@ jobs:
             echo '```'
             echo '### 尾部'
             echo '```'
-            tail -n 40 build-log.txt 2>/dev/null || echo "(no build-log.txt)"
+            tail -n 200 build-log.txt 2>/dev/null || echo "(no build-log.txt)"
             echo '```'
           } > "$body_file"
           gh api -X POST "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
