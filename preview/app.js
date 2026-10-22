@@ -11,14 +11,17 @@
 
   const W = 240;
   const H = 320;
-  const STATUS_H = 16;
-  const ROW_H = 46;
+  const CORNER_X = 18;
+  const BODY_X = 6;
+  const STATUS_Y = 7;
+  const STATUS_H = 24;
+  const ROW_H = 45;
   const VISIBLE_ROWS = 6;
-  const LIST_TOP = 18;
-  const DETAIL_TOP = 33;
+  const LIST_TOP = 24;
+  const DETAIL_TOP = 40;
   const DETAIL_ROWS = 17;
-  const FOOTER_RULE = 302;
-  const FOOTER_Y = 304;
+  const FOOTER_RULE = 297;
+  const FOOTER_Y = 299;
   const LIST_CELLS = 38;
   const DETAIL_CELLS = 36;
   const MAX_ITEMS = 12;
@@ -359,39 +362,49 @@
     let banner = 'SIGNAL.LOG';
     if (state.busy) banner = 'SYNC..';
     else if (state.stale) banner = 'STALE';
-    text(4, 1, '|' + banner, state.stale ? C.amber : C.fg, { maxW: 150 });
-    text(0, 1, `${hhmm(clockNow())} ${state.battery}%`, C.dim, { right: 4 });
+    text(CORNER_X, STATUS_Y, '|' + banner, state.stale ? C.amber : C.fg, { maxW: 120 });
+    text(0, STATUS_Y, `${hhmm(clockNow())} ${state.battery}%`, C.dim, { right: CORNER_X });
     rule(0, STATUS_H - 1, W, C.dim);
   }
 
   function drawFooter(hint) {
     rule(0, FOOTER_RULE, W, C.dim);
-    text(4, FOOTER_Y, hint, C.dim, { maxW: W - 8 });
+    text(CORNER_X, FOOTER_Y, hint, C.dim, { maxW: W - 2 * CORNER_X });
   }
 
   function drawList() {
     const items = state.feed.items;
-    for (let row = 0; row < VISIBLE_ROWS && row < items.length; row++) {
-      const it = items[row];
-      const selected = row === state.selected;
+    let first = 0;
+    if (state.selected >= VISIBLE_ROWS) first = state.selected - VISIBLE_ROWS + 1;
+    if (items.length > VISIBLE_ROWS && first > items.length - VISIBLE_ROWS) {
+      first = items.length - VISIBLE_ROWS;
+    }
+
+    for (let row = 0; row < VISIBLE_ROWS; row++) {
+      const idx = first + row;
+      if (idx >= items.length) break;
+      const it = items[idx];
+      const selected = idx === state.selected;
       const y = LIST_TOP + row * ROW_H;
 
-      if (selected) band(0, y, W, ROW_H - 2, C.bar);
+      if (selected) band(0, y, W, ROW_H - 1, C.bar);
       const main = selected ? C.ink : C.white;
 
-      text(4, y + 1, `[${it.grade}] ${hhmm(it.epoch)} ${it.source}`,
-           selected ? C.ink : (GRADE_COLOR[it.grade] || C.fg), { maxW: 168 });
+      text(BODY_X, y + 1, `[${it.grade}] ${hhmm(it.epoch)} ${it.source}`,
+           selected ? C.ink : (GRADE_COLOR[it.grade] || C.fg), { maxW: 164 });
 
       const lines = wrap(it.title, LIST_CELLS, 2);
-      lines.forEach((line, i) => text(4, y + 16 + i * 15, line, main, { maxW: W - 8 }));
-      if (!lines.length) text(4, y + 16, '(无标题)', main);
+      lines.forEach((line, i) => text(BODY_X, y + 15 + i * 14, line, main, { maxW: W - 2 * BODY_X }));
+      if (!lines.length) text(BODY_X, y + 15, '(无标题)', main);
 
       if (it.quote.hasQuote) {
         text(0, y + 1, pctText(it.quote.changePct),
-             selected ? C.ink : changeColor(it.quote), { right: 4 });
+             selected ? C.ink : changeColor(it.quote), { right: BODY_X });
       }
 
-      rule(0, y + ROW_H - 2, W, selected ? C.bar : C.dim);
+      if (row < VISIBLE_ROWS - 1) {
+        rule(0, y + ROW_H - 1, W, selected ? C.bar : C.dim);
+      }
     }
 
     drawFooter(`▲▼ 选择  OK 详情  ${items.length ? state.selected + 1 : 0}/${items.length}`);
@@ -407,20 +420,20 @@
 
     band(0, STATUS_H, W, 15, C.bar);
     const head = `${state.detailIndex + 1}/${state.feed.items.length} `;
-    text(4, STATUS_H, head, C.ink, { maxW: 40 });
-    text(4 + head.length * 6, STATUS_H, item.source, C.ink, { maxW: W - 60 });
+    text(BODY_X, STATUS_H, head, C.ink, { maxW: 40 });
+    text(BODY_X + head.length * 6, STATUS_H, item.source, C.ink, { maxW: W - 64 });
 
     for (let i = 0; i < DETAIL_ROWS; i++) {
       const line = lines[state.detailFirst + i];
       if (!line) break;
       const y = DETAIL_TOP + i * 15;
-      if (line.style === 'rule') rule(4, y + 7, W - 8, C.dim);
-      else if (line.style === 'head') chip(4, y + 1, line.text);
-      else text(4, y, line.text, STYLE_COLOR[line.style] || C.fg, { maxW: W - 8 });
+      if (line.style === 'rule') rule(BODY_X, y + 7, W - 2 * BODY_X, C.dim);
+      else if (line.style === 'head') chip(BODY_X, y + 1, line.text);
+      else text(BODY_X, y, line.text, STYLE_COLOR[line.style] || C.fg, { maxW: W - 2 * BODY_X });
     }
 
     if (lines.length > state.detailFirst + DETAIL_ROWS) {
-      text(W - 18, DETAIL_TOP + DETAIL_ROWS * 15 - 2, '▼', C.amber);
+      text(W - 18, DETAIL_TOP + (DETAIL_ROWS - 1) * 15, '▼', C.amber);
     }
 
     drawFooter('▲▼ 滚动  OK 翻页  长按 返回');
@@ -429,8 +442,8 @@
   function drawMessage() {
     const isBoot = state.view === 'boot';
     const headline = isBoot ? 'SIGNAL.LOG' : 'NO SIGNAL';
-    text(6, 44, headline, C.fg, { size: 20, line: 24, maxW: W - 12 });
-    rule(6, 74, W - 12, C.dim);
+    text(8, 40, headline, C.fg, { size: 20, line: 24, maxW: W - 16 });
+    rule(8, 68, W - 16, C.dim);
 
     const body = isBoot
       ? '005 · 章鱼AI 事件雷达\n开机中，等待第一轮情报…'
@@ -438,18 +451,18 @@
 
     let row = 0;
     for (const paragraph of body.split('\n')) {
-      const wrapped = wrap(paragraph, DETAIL_CELLS, 3);
+      const wrapped = wrap(paragraph, DETAIL_CELLS, 4);
       if (!wrapped.length) { row++; continue; }
       for (const line of wrapped) {
-        if (row >= 9) break;
-        text(6, 86 + row * 15, line, C.fg, { maxW: W - 12 });
+        if (row >= 12) break;
+        text(8, 78 + row * 15, line, C.fg, { maxW: W - 16 });
         row++;
       }
     }
 
     if (isBoot) {
       // 启动页给一个闪烁光标，和旧终端一致
-      const cursor = text(6, 86 + row * 15, '█', C.fg);
+      const cursor = text(8, 78 + row * 15, '█', C.fg);
       cursor.style.animation = 'flicker 1.1s steps(2) infinite';
     }
 

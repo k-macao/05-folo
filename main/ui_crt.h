@@ -1,7 +1,7 @@
 // main/ui_crt.h —— 005 情报在 240x320 上的 DOS/CRT 终端界面。
 //
-// 一次渲染 = 删掉旧屏、按 view 重建。三按键设备上一秒最多几次按键，重建几十个
-// label 的成本可以忽略；换来的是没有"谁负责恢复高亮"这类状态 bug。
+// 一次渲染 = 构造新屏、原子切换并自动销毁旧屏。三按键设备上一秒最多几次按键，
+// 重建几十个 label 的成本可以忽略；换来的是没有"谁负责恢复高亮"这类状态 bug。
 #pragma once
 
 #include "intel.h"
@@ -19,9 +19,9 @@
 #define UI_CYAN      0x58D8FF
 #define UI_WHITE     0xE8FFE8
 
-#define UI_ROW_H      46
+#define UI_ROW_H        45
 #define UI_VISIBLE_ROWS 6
-#define UI_DETAIL_ROWS 17
+#define UI_DETAIL_ROWS  17
 
 typedef enum {
     UI_VIEW_BOOT = 0,
@@ -46,7 +46,7 @@ typedef struct {
     bool busy;                     // 正在拉取：顶栏显示 "SYNC.."
 
     const char *headline;          // BOOT/ERROR 主标题（ASCII，用 Montserrat 20）
-    const char *message;           // BOOT/ERROR 正文，可含 \n，最长 8 行
+    const char *message;           // BOOT/ERROR 正文，可含 \n，最长 12 行
     const char *hint;              // 底部提示；NULL 用该视图的默认提示
 } ui_view_t;
 
