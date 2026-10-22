@@ -27,6 +27,7 @@
 #include "sdkconfig.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "signal_log";
@@ -48,9 +49,8 @@ typedef struct {
     bsp_btn_ev_t event;
 } input_event_t;
 
-// 解析先落到 incoming，成功后才替换 s_feed：拉取失败时屏幕上的旧情报不消失。
+// s_feed 由 bsp_lvgl_lock() 互斥访问；解析在 HTTP 关闭后再临时申请堆缓冲，省下 11.3 KB 常驻 .bss。
 static intel_feed_t s_feed;
-static intel_feed_t s_incoming;
 
 static screen_id_t s_screen = SCR_BOOT;
 static bool s_have_feed;
@@ -206,6 +206,7 @@ static void handle_key(bsp_btn_t btn, bsp_btn_ev_t ev)
     const bool click = ev == BSP_BTN_CLICK;
     const bool long_press = ev == BSP_BTN_LONG;
     if (!click && !long_press) return;
+    if (!bsp_lvgl_lock(500)) return;
 
     switch (s_screen) {
     case SCR_LIST:
@@ -217,8 +218,6 @@ static void handle_key(bsp_btn_t btn, bsp_btn_ev_t ev)
             open_detail(s_selected);
         } else if (long_press && btn == BSP_BTN_OK) {
             request_refresh();
-            render();
-            return;
         }
         break;
 
@@ -242,13 +241,12 @@ static void handle_key(bsp_btn_t btn, bsp_btn_ev_t ev)
     default:
         if (btn == BSP_BTN_OK) {
             request_refresh();
-            render();
-            return;
         }
         break;
     }
 
-    render();
+    render_locked();
+    bsp_lvgl_unlock();
 }
 
 // button 回调跑在共享 esp_timer 任务里，只允许入队。
@@ -285,14 +283,20 @@ static void do_refresh(void)
 
     ESP_LOGI(TAG, "开始拉取 %s", CONFIG_APP_FEED_URL);
     int dropped = 0;
+    intel_feed_t *incoming = NULL;
     s_fetch_err[0] = 0;
-    const app_feed_result_t result = app_feed_fetch(&s_incoming, &dropped,
+    const app_feed_result_t result = app_feed_fetch(&incoming, &dropped,
                                                     s_fetch_err, sizeof s_fetch_err);
 
-    if (!bsp_lvgl_lock(1000)) return;
+    if (!bsp_lvgl_lock(1000)) {
+        free(incoming);
+        return;
+    }
 
-    if (result == APP_FEED_OK) {
-        s_feed = s_incoming;
+    if (result == APP_FEED_OK && incoming) {
+        s_feed = *incoming;
+        free(incoming);
+        incoming = NULL;
         s_have_feed = true;
         s_stale = false;
         s_sync_us = esp_timer_get_time();
@@ -301,11 +305,13 @@ static void do_refresh(void)
         if (s_screen != SCR_DETAIL) s_screen = SCR_LIST;
         ESP_LOGI(TAG, "同步成功：%d 条（丢弃 %d）", s_feed.count, dropped);
     } else if (result != APP_FEED_ERR_WIFI || !s_have_feed) {
+        free(incoming);
         s_stale = true;
         normalize_lines(s_err, sizeof s_err, s_fetch_err[0] ? s_fetch_err : "拉取失败");
         if (!s_have_feed) s_screen = SCR_ERROR;
         ESP_LOGW(TAG, "同步失败：%s", s_err);
     } else {
+        free(incoming);
         s_stale = true;
     }
 

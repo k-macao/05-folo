@@ -9,7 +9,7 @@ idf_component_register(
     INCLUDE_DIRS "." "fonts"
     REQUIRES
         bsp
-        esp_http_client esp-tls mbedtls
+        esp_http_client esp-tls mbedtls esp_rom
         esp_wifi esp_netif esp_event
         nvs_flash json heap
         esp_timer esp_system
