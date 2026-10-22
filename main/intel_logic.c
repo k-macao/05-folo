@@ -404,8 +404,8 @@ static void push_rule(builder_t *b)
 
 static void push_wrapped(builder_t *b, intel_line_style_t style, const char *text, int max_lines)
 {
-    char lines[8][INTEL_LINE_BYTES];
-    int n = intel_wrap(text, INTEL_DETAIL_CELLS, max_lines, lines, 8);
+    char lines[5][INTEL_LINE_BYTES];
+    int n = intel_wrap(text, INTEL_DETAIL_CELLS, max_lines, lines, 5);
     for (int i = 0; i < n; i++) push(b, style, lines[i]);
 }
 

@@ -2,6 +2,7 @@
 //
 // FoloToy AI Passport 的屏幕带 R=30 圆角遮罩与顶部塑料压边（实机顶边约遮 6 px）：
 // 顶栏（y=7..21）和底栏（y=299..313）左右各留 18 px 安全边距，确保四角不切字。
+// 所有函数均在 bsp_lvgl_lock() 保护下串行执行，换行临时缓冲放静态区，避免占用调用任务栈。
 #include "ui_crt.h"
 #include "intel_logic.h"
 #include "fonts/crt_font_12.h"
@@ -20,6 +21,8 @@
 #define DETAIL_HEAD_Y 40    // 详情标题条 24..38（15 px），正文从 y=40 起 17 行 × 15 px = 295
 
 static lv_obj_t *s_scr;
+static char s_seg_buf[INTEL_LINE_BYTES];
+static char s_wrap_buf[4][INTEL_LINE_BYTES];
 
 static lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t bg)
 {
@@ -110,11 +113,10 @@ static void render_list(const ui_view_t *v)
                  it->hhmm, it->source);
         text(card, BODY_X, 1, meta, sel ? UI_INK : (uint32_t)intel_grade_color(it->grade));
 
-        // 标题两行，38 半格/行
-        char lines[2][INTEL_LINE_BYTES];
-        int n = intel_wrap(it->title, INTEL_LIST_CELLS, 2, lines, 2);
+        // 标题两行，38 半格/行（复用静态 s_wrap_buf，零大栈帧）
+        int n = intel_wrap(it->title, INTEL_LIST_CELLS, 2, s_wrap_buf, 2);
         for (int i = 0; i < n; i++) {
-            text(card, BODY_X, 15 + i * 14, lines[i], main_color);
+            text(card, BODY_X, 15 + i * 14, s_wrap_buf[i], main_color);
         }
         if (n == 0) text(card, BODY_X, 15, "(无标题)", main_color);
 
@@ -197,37 +199,28 @@ static void render_message(const ui_view_t *v)
 
     hline(s_scr, 68, UI_DIM, 8, SCR_W - 16);
 
-    char buf[512];
-    snprintf(buf, sizeof buf, "%s", v->message ? v->message : "");
-    char lines[12][INTEL_LINE_BYTES];
-    int n = 0;
-
-    // 按 \n 分段后各自换行，最多 12 行（状态页不做滚动）。
-    const char *para = buf;
-    while (*para && n < 12) {
+    // 按 \n 分段后直接逐行输出 label，不在栈上分配多行大数组。
+    const char *para = v->message ? v->message : "";
+    int row = 0;
+    while (*para && row < 12) {
         const char *nl = strchr(para, '\n');
         const size_t len = nl ? (size_t)(nl - para) : strlen(para);
-        char seg[INTEL_LINE_BYTES];
         if (len > 0) {
-            const size_t keep = len < sizeof seg - 1 ? len : sizeof seg - 1;
-            memcpy(seg, para, keep);
-            seg[keep] = 0;
-            char wrapped[4][INTEL_LINE_BYTES];
-            const int w = intel_wrap(seg, INTEL_DETAIL_CELLS, 4, wrapped, 4);
-            for (int i = 0; i < w && n < 12; i++) {
-                snprintf(lines[n++], INTEL_LINE_BYTES, "%s", wrapped[i]);
+            const size_t keep = len < sizeof s_seg_buf - 1 ? len : sizeof s_seg_buf - 1;
+            memcpy(s_seg_buf, para, keep);
+            s_seg_buf[keep] = 0;
+            const int w = intel_wrap(s_seg_buf, INTEL_DETAIL_CELLS, 4, s_wrap_buf, 4);
+            for (int i = 0; i < w && row < 12; i++) {
+                const bool dim = strncmp(s_wrap_buf[i], "Wi-Fi:", 6) == 0 ||
+                                 strncmp(s_wrap_buf[i], "提示:", 7) == 0;
+                text(s_scr, 8, 78 + row * 15, s_wrap_buf[i], dim ? UI_DIM : UI_FG);
+                row++;
             }
         } else {
-            lines[n++][0] = 0;          // 空行保留，用于段落间距
+            row++;                      // 空行保留，用于段落间距
         }
         if (!nl) break;
         para = nl + 1;
-    }
-    for (int i = 0; i < n; i++) {
-        if (!lines[i][0]) continue;
-        const bool dim = strncmp(lines[i], "Wi-Fi:", 6) == 0 ||
-                         strncmp(lines[i], "提示:", 7) == 0;
-        text(s_scr, 8, 78 + i * 15, lines[i], dim ? UI_DIM : UI_FG);
     }
 
     footer(v, "OK 重试");

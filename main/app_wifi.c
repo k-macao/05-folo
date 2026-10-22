@@ -1,5 +1,6 @@
 // main/app_wifi.c —— ESP32-C3 STA，2.4 GHz。凭证在 menuconfig 里填，
 // 不落 NVS、不生成二维码：这是个人小设备，少一层配网状态机就少一类黑屏。
+// 所有初始化步骤均返回错误码而非 ESP_ERROR_CHECK abort()，任何异常都不会引发无限重启屏闪。
 #include "app_wifi.h"
 
 #include "esp_event.h"
@@ -22,10 +23,12 @@ static const char *TAG = "app_wifi";
 
 static EventGroupHandle_t s_events;
 static esp_netif_t *s_netif;
+static bool s_netif_inited;
 static bool s_started;
 static volatile bool s_connecting;
 static int s_retry;
 static unsigned s_last_reason;
+static esp_err_t s_init_err;
 static char s_ip_str[20];
 
 static void ensure_backup_dns(void)
@@ -84,22 +87,36 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
 static esp_err_t stack_start(void)
 {
     if (s_started) return ESP_OK;
+    if (s_init_err != ESP_OK) return s_init_err;
 
     s_events = xEventGroupCreate();
-    if (!s_events) return ESP_ERR_NO_MEM;
+    if (!s_events) {
+        s_init_err = ESP_ERR_NO_MEM;
+        return s_init_err;
+    }
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    if (!s_netif_inited) {
+        esp_err_t e = esp_netif_init();
+        if (e != ESP_OK) { s_init_err = e; return e; }
+        e = esp_event_loop_create_default();
+        if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) { s_init_err = e; return e; }
+        s_netif_inited = true;
+    }
+
     s_netif = esp_netif_create_default_wifi_sta();
-    if (!s_netif) return ESP_ERR_NO_MEM;
+    if (!s_netif) { s_init_err = ESP_ERR_NO_MEM; return s_init_err; }
 
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&init_cfg));
+    esp_err_t e = esp_wifi_init(&init_cfg);
+    if (e != ESP_OK) { s_init_err = e; return e; }
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL, NULL));
+    e = esp_event_handler_instance_register(
+        WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL, NULL);
+    if (e != ESP_OK) { s_init_err = e; return e; }
+
+    e = esp_event_handler_instance_register(
+        IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL, NULL);
+    if (e != ESP_OK) { s_init_err = e; return e; }
 
     wifi_config_t cfg = { 0 };
     snprintf((char *)cfg.sta.ssid, sizeof cfg.sta.ssid, "%s", CONFIG_APP_WIFI_SSID);
@@ -109,10 +126,15 @@ static esp_err_t stack_start(void)
     cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
     // 必须先切到 RAM 存储，再设 mode 与 config；否则密码会被默认写进 NVS。
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    e = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (e != ESP_OK) { s_init_err = e; return e; }
+    e = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (e != ESP_OK) { s_init_err = e; return e; }
+    e = esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    if (e != ESP_OK) { s_init_err = e; return e; }
+    e = esp_wifi_start();
+    if (e != ESP_OK) { s_init_err = e; return e; }
+
     // 关闭 modem 省电，避免 ESP32-C3 在 DNS / TLS 握手包突发时丢包超时。
     (void)esp_wifi_set_ps(WIFI_PS_NONE);
 
@@ -165,6 +187,10 @@ bool app_wifi_is_connected(void)
 void app_wifi_describe(char *out, size_t cap)
 {
     if (!out || cap == 0) return;
+    if (s_init_err != ESP_OK) {
+        snprintf(out, cap, "Wi-Fi: 初始化错误(0x%X)", (unsigned)s_init_err);
+        return;
+    }
     if (app_wifi_is_connected()) {
         snprintf(out, cap, "Wi-Fi: %s (%s)",
                  CONFIG_APP_WIFI_SSID, s_ip_str[0] ? s_ip_str : "已连接");
