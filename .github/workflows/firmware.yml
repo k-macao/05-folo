@@ -31,7 +31,7 @@ jobs:
       - name: Build and merge image (ESP-IDF 5.5.3)
         uses: espressif/esp-idf-ci-action@v1
         with:
-          esp_idf_version: release-v5.5.3
+          esp_idf_version: v5.5.3
           target: esp32c3
           command: >-
             idf.py build &&
