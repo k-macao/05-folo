@@ -220,17 +220,13 @@ void ui_crt_render(const ui_view_t *v)
 {
     if (!v) return;
 
-    if (s_scr) {
-        lv_obj_delete(s_scr);
-        s_scr = NULL;
-    }
-    s_scr = lv_obj_create(NULL);
-    lv_obj_remove_flag(s_scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(s_scr, lv_color_hex(UI_BG), 0);
-    lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(s_scr, 0, 0);
-    lv_obj_set_style_border_width(s_scr, 0, 0);
-    lv_obj_remove_flag(s_scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *scr = lv_obj_create(NULL);
+    s_scr = scr;
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(UI_BG), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
 
     status_bar(UI_BG, v);
 
@@ -253,13 +249,11 @@ void ui_crt_render(const ui_view_t *v)
         break;
     }
 
-    lv_screen_load(s_scr);
+    // 原子切换活动屏幕并自动销毁旧屏（含首次开机 LVGL 默认白底屏），避免空屏闪烁和池泄漏。
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
 }
 
 void ui_crt_deinit(void)
 {
-    if (s_scr) {
-        lv_obj_delete(s_scr);
-        s_scr = NULL;
-    }
+    s_scr = NULL;
 }

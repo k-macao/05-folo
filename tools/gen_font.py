@@ -36,7 +36,8 @@ from pathlib import Path
 try:
     from PIL import Image, ImageFont
 except ImportError:  # pragma: no cover - tooling dependency
-    sys.exit("Pillow is required: python3 -m pip install pillow")
+    Image = None      # type: ignore[assignment]
+    ImageFont = None  # type: ignore[assignment]
 
 
 # --------------------------------------------------------------------------- #
@@ -334,6 +335,8 @@ def verify(c_text: str, glyphs: list[Glyph], line_height: int) -> None:
 
 # --------------------------------------------------------------------------- #
 def main() -> None:
+    if Image is None or ImageFont is None:
+        sys.exit("Pillow is required: python3 -m pip install pillow")
     ap = argparse.ArgumentParser()
     ap.add_argument("--font", required=True, help="source .otf/.ttf (not committed)")
     ap.add_argument("--size", type=int, default=12)

@@ -32,7 +32,7 @@
 static const char *TAG = "signal_log";
 
 #define INPUT_QUEUE_DEPTH 8
-#define FEED_TASK_STACK   12288
+#define FEED_TASK_STACK   16384
 #define REFRESH_PERIOD_US ((int64_t)CONFIG_APP_REFRESH_MINUTES * 60 * 1000000)
 
 typedef enum {
@@ -240,8 +240,10 @@ static void input_task(void *arg)
 static void do_refresh(void)
 {
     s_refresh_request = false;
-    s_busy = true;
-    render();
+    if (!s_busy) {
+        s_busy = true;
+        render();
+    }
 
     ESP_LOGI(TAG, "开始拉取 %s", CONFIG_APP_FEED_URL);
     int dropped = 0;
@@ -319,7 +321,6 @@ void app_main(void)
         ESP_LOGE(TAG, "显示/LVGL 初始化失败，无法继续");
         return;
     }
-    bsp_display_backlight(100);
     if (bsp_battery_init() != ESP_OK) ESP_LOGW(TAG, "电量计不可用，顶栏不显示电量");
 
     s_input_queue = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(input_event_t));
@@ -338,10 +339,18 @@ void app_main(void)
     }
 
     refresh_battery();
-    render();
+    s_busy = true;
+    if (bsp_lvgl_lock(1000)) {
+        render_locked();
+        // 先把黑底首帧刷进 ST7789 显存，再开背光，避免上电花屏/白屏闪一下。
+        lv_refr_now(NULL);
+        bsp_lvgl_unlock();
+    }
+    bsp_display_backlight(100);
 
     if (xTaskCreate(feed_task, "feed", FEED_TASK_STACK, NULL, 4, NULL) != pdPASS) {
         ESP_LOGE(TAG, "拉取任务创建失败");
+        s_busy = false;
         intel_normalize(s_err, sizeof s_err, "拉取任务创建失败");
         s_screen = SCR_ERROR;
         render();

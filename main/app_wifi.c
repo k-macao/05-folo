@@ -17,33 +17,41 @@ static const char *TAG = "app_wifi";
 
 #define WIFI_BIT_CONNECTED BIT0
 #define WIFI_BIT_FAILED    BIT1
+#define WIFI_BIT_STARTED   BIT2
 #define WIFI_MAX_RETRY     5
 
 static EventGroupHandle_t s_events;
 static esp_netif_t *s_netif;
 static bool s_started;
+static volatile bool s_connecting;
 static int s_retry;
 
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
-    (void)data;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        xEventGroupSetBits(s_events, WIFI_BIT_STARTED);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        const wifi_event_sta_disconnected_t *disc =
+            (const wifi_event_sta_disconnected_t *)data;
         xEventGroupClearBits(s_events, WIFI_BIT_CONNECTED);
+        if (!s_connecting) return;
         if (s_retry < WIFI_MAX_RETRY) {
             s_retry++;
-            ESP_LOGW(TAG, "连接断开，重试 %d/%d", s_retry, WIFI_MAX_RETRY);
+            ESP_LOGW(TAG, "连接断开(reason=%u)，重试 %d/%d",
+                     disc ? (unsigned)disc->reason : 0u, s_retry, WIFI_MAX_RETRY);
             esp_wifi_connect();
         } else {
-            ESP_LOGE(TAG, "Wi-Fi 重试耗尽");
+            s_connecting = false;
+            ESP_LOGE(TAG, "Wi-Fi 重试耗尽(reason=%u)",
+                     disc ? (unsigned)disc->reason : 0u);
             xEventGroupSetBits(s_events, WIFI_BIT_FAILED);
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         const ip_event_got_ip_t *ev = (const ip_event_got_ip_t *)data;
         ESP_LOGI(TAG, "已获取 IP: " IPSTR, IP2STR(&ev->ip_info.ip));
         s_retry = 0;
+        s_connecting = false;
         xEventGroupClearBits(s_events, WIFI_BIT_FAILED);
         xEventGroupSetBits(s_events, WIFI_BIT_CONNECTED);
     }
@@ -72,12 +80,14 @@ static esp_err_t stack_start(void)
     wifi_config_t cfg = { 0 };
     snprintf((char *)cfg.sta.ssid, sizeof cfg.sta.ssid, "%s", CONFIG_APP_WIFI_SSID);
     snprintf((char *)cfg.sta.password, sizeof cfg.sta.password, "%s", CONFIG_APP_WIFI_PASSWORD);
-    cfg.sta.threshold.authmode = CONFIG_APP_WIFI_PASSWORD[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+    cfg.sta.threshold.authmode =
+        CONFIG_APP_WIFI_PASSWORD[0] ? WIFI_AUTH_WPA_WPA2_PSK : WIFI_AUTH_OPEN;
     cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
+    // 必须先切到 RAM 存储，再设 mode 与 config；否则 config 写入 NVS 后切 RAM 会把配置清空。
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_start());
 
     s_started = true;
@@ -95,15 +105,26 @@ esp_err_t app_wifi_connect(uint32_t timeout_ms)
     if (err != ESP_OK) return err;
     if (app_wifi_is_connected()) return ESP_OK;
 
+    const EventBits_t started = xEventGroupWaitBits(
+        s_events, WIFI_BIT_STARTED, pdFALSE, pdFALSE, pdMS_TO_TICKS(timeout_ms));
+    if (!(started & WIFI_BIT_STARTED)) return ESP_ERR_TIMEOUT;
+
     xEventGroupClearBits(s_events, WIFI_BIT_FAILED);
     s_retry = 0;
-    esp_wifi_connect();
+    s_connecting = true;
+    err = esp_wifi_connect();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+        s_connecting = false;
+        ESP_LOGE(TAG, "esp_wifi_connect 失败: %s", esp_err_to_name(err));
+        return err;
+    }
 
     const EventBits_t bits = xEventGroupWaitBits(
         s_events, WIFI_BIT_CONNECTED | WIFI_BIT_FAILED, pdFALSE, pdFALSE,
         pdMS_TO_TICKS(timeout_ms));
 
     if (bits & WIFI_BIT_CONNECTED) return ESP_OK;
+    s_connecting = false;
     if (bits & WIFI_BIT_FAILED) return ESP_FAIL;
     ESP_LOGW(TAG, "连接 %s 超时", CONFIG_APP_WIFI_SSID);
     return ESP_ERR_TIMEOUT;
@@ -118,6 +139,7 @@ bool app_wifi_is_connected(void)
 void app_wifi_stop(void)
 {
     if (!s_started) return;
+    s_connecting = false;
     esp_wifi_stop();
     esp_wifi_deinit();
     if (s_netif) {

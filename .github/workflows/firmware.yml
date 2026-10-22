@@ -109,21 +109,23 @@ jobs:
 
       - name: Checksums and sizes
         run: |
-          # build/ 由容器内的 root 创建，宿主机步骤不能往里写；校验文件放仓库根目录。
+          # build/ 由容器内的 root 创建，宿主机步骤不能往里写；拷一份到仓库根目录，
+          # 这样解压 Actions Artifact zip 后顶层直接就是 005-signal-log-full.bin，不用翻子目录。
           find build -maxdepth 1 -type f -name '*.bin' -printf '%p %s bytes\n' || true
           test -f build/005-signal-log-full.bin
-          sha256sum build/005-signal-log-full.bin > SHA256SUMS.txt
+          cp -f build/005-signal-log-full.bin 005-signal-log-full.bin
+          sha256sum 005-signal-log-full.bin > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Verify merged image structure
-        run: python3 tools/verify_image.py build/005-signal-log-full.bin | tee image-report.txt
+        run: python3 tools/verify_image.py 005-signal-log-full.bin | tee image-report.txt
 
       - name: Upload merged image
         uses: actions/upload-artifact@v4
         with:
           name: 005-signal-log-full
           path: |
-            build/005-signal-log-full.bin
+            005-signal-log-full.bin
             SHA256SUMS.txt
             image-report.txt
           retention-days: 30
@@ -138,7 +140,7 @@ jobs:
           notes=$(printf '自动构建的 005 SIGNAL.LOG 样板固件（ESP-IDF v5.5.3 / esp32c3，不含 Wi-Fi 密码）。\n\n提交: %s\n\n烧录：\n```\nesptool.py --chip esp32c3 -p /dev/ttyACM0 -b 460800 write_flash 0x0 005-signal-log-full.bin\n```\n或在本仓库执行 ./tools/flash.sh\n\n### 镜像校验\n```\n%s\n```' "${{ github.sha }}" "$(cat image-report.txt)")
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
             --title "005 SIGNAL.LOG firmware (latest)" --prerelease --notes "$notes"
-          gh release upload "$tag" build/005-signal-log-full.bin SHA256SUMS.txt image-report.txt --clobber
+          gh release upload "$tag" 005-signal-log-full.bin SHA256SUMS.txt image-report.txt --clobber
           gh release edit "$tag" --notes "$notes"
 
       - name: Summarize
