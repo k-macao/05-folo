@@ -32,7 +32,7 @@
 static const char *TAG = "signal_log";
 
 #define INPUT_QUEUE_DEPTH 8
-#define FEED_TASK_STACK   12288
+#define FEED_TASK_STACK   16384
 #define REFRESH_PERIOD_US ((int64_t)CONFIG_APP_REFRESH_MINUTES * 60 * 1000000)
 
 typedef enum {
@@ -61,13 +61,48 @@ static int s_detail_first;
 static int s_detail_count;
 static intel_line_t s_detail_lines[INTEL_DETAIL_MAX_LINES];
 static char s_clock[8] = "--:--";
-static char s_err[128] = "等待首次同步";
+static char s_err[256] = "等待首次同步";
 static int s_battery = -1;
 static int64_t s_sync_us;
 static uint32_t s_last_minute_key;
 
 static QueueHandle_t s_input_queue;
 static volatile bool s_refresh_request;
+
+// 逐行做 intel_normalize 并保留换行符 \n，让状态页能按段落显示多行诊断信息。
+static void normalize_lines(char *dst, size_t cap, const char *src)
+{
+    if (!dst || cap == 0) return;
+    dst[0] = 0;
+    if (!src) return;
+
+    size_t used = 0;
+    const char *p = src;
+    while (*p && used + 2 < cap) {
+        const char *nl = strchr(p, '\n');
+        char raw_line[128];
+        const size_t raw_len = nl ? (size_t)(nl - p) : strlen(p);
+        const size_t keep = raw_len < sizeof raw_line - 1 ? raw_len : sizeof raw_line - 1;
+        memcpy(raw_line, p, keep);
+        raw_line[keep] = 0;
+
+        char clean[128];
+        intel_normalize(clean, sizeof clean, raw_line);
+
+        const size_t clen = strlen(clean);
+        if (used + clen + 2 >= cap) break;
+        if (clen > 0) {
+            memcpy(dst + used, clean, clen);
+            used += clen;
+        }
+        if (nl && used + 1 < cap) {
+            dst[used++] = '\n';
+        }
+        dst[used] = 0;
+        if (!nl) break;
+        p = nl + 1;
+    }
+}
 
 // --------------------------------------------------------------------------- //
 // 时间：没有 RTC，用 feed 的 generated_at 做基准 + 开机计时，够显示"几分钟前"。
@@ -240,12 +275,14 @@ static void input_task(void *arg)
 static void do_refresh(void)
 {
     s_refresh_request = false;
-    s_busy = true;
-    render();
+    if (!s_busy) {
+        s_busy = true;
+        render();
+    }
 
     ESP_LOGI(TAG, "开始拉取 %s", CONFIG_APP_FEED_URL);
     int dropped = 0;
-    char err[96] = { 0 };
+    char err[256] = { 0 };
     const app_feed_result_t result = app_feed_fetch(&s_incoming, &dropped, err, sizeof err);
 
     if (!bsp_lvgl_lock(1000)) return;
@@ -261,7 +298,7 @@ static void do_refresh(void)
         ESP_LOGI(TAG, "同步成功：%d 条（丢弃 %d）", s_feed.count, dropped);
     } else if (result != APP_FEED_ERR_WIFI || !s_have_feed) {
         s_stale = true;
-        intel_normalize(s_err, sizeof s_err, err[0] ? err : "拉取失败");
+        normalize_lines(s_err, sizeof s_err, err[0] ? err : "拉取失败");
         if (!s_have_feed) s_screen = SCR_ERROR;
         ESP_LOGW(TAG, "同步失败：%s", s_err);
     } else {
@@ -319,7 +356,6 @@ void app_main(void)
         ESP_LOGE(TAG, "显示/LVGL 初始化失败，无法继续");
         return;
     }
-    bsp_display_backlight(100);
     if (bsp_battery_init() != ESP_OK) ESP_LOGW(TAG, "电量计不可用，顶栏不显示电量");
 
     s_input_queue = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(input_event_t));
@@ -334,15 +370,23 @@ void app_main(void)
     if (bsp_button_init(on_key, NULL) != ESP_OK) {
         // 没有按键仍可以自动刷新，只是无法翻页：不要因为外设坏掉就重启循环。
         ESP_LOGE(TAG, "按键初始化失败，仅保留自动刷新");
-        intel_normalize(s_err, sizeof s_err, "按键不可用");
+        normalize_lines(s_err, sizeof s_err, "按键不可用");
     }
 
     refresh_battery();
-    render();
+    s_busy = true;
+    if (bsp_lvgl_lock(1000)) {
+        render_locked();
+        // 先把黑底首帧刷进 ST7789 显存，再开背光，避免上电花屏/白屏闪一下。
+        lv_refr_now(NULL);
+        bsp_lvgl_unlock();
+    }
+    bsp_display_backlight(100);
 
     if (xTaskCreate(feed_task, "feed", FEED_TASK_STACK, NULL, 4, NULL) != pdPASS) {
         ESP_LOGE(TAG, "拉取任务创建失败");
-        intel_normalize(s_err, sizeof s_err, "拉取任务创建失败");
+        s_busy = false;
+        normalize_lines(s_err, sizeof s_err, "拉取任务创建失败");
         s_screen = SCR_ERROR;
         render();
     }

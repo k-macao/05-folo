@@ -6,9 +6,10 @@ Why this exists
 ``lv_font_conv`` (the usual LVGL font generator) produced corrupt bitmaps for us
 under current Node.js, so this script rasterises with Pillow/FreeType and emits
 LVGL's ``lv_font_fmt_txt`` structures directly.  It then **re-parses the C file it
-just wrote**, decodes every glyph exactly the way ``lv_font_get_bitmap_fmt_txt()``
-does and compares the result pixel by pixel with the rasterisation.  A mismatch
-fails the run instead of shipping garbled text.
+just wrote**, resolves every code point through ``cmaps[]`` (including binary search
+over ``SPARSE_TINY`` tables), decodes every glyph exactly the way
+``lv_font_get_bitmap_fmt_txt()`` does and compares the result pixel by pixel with
+the rasterisation.  A mismatch fails the run instead of shipping garbled text.
 
 Output
 ------
@@ -19,7 +20,7 @@ so regenerating never silently drops a glyph another build still uses.
 Usage
 -----
     python3 tools/gen_font.py \
-        --font /path/NotoSansCJKsc-Regular.otf --size 12 \
+        --font /path/NotoSansMonoCJKsc-Regular.otf --size 12 --mono \
         --name crt_font_12 --out main/fonts/crt_font_12.c
 
 The source font is never committed: record family, licence, download source and
@@ -29,14 +30,16 @@ the command above in the asset documentation instead (SIL OFL 1.1 for Noto).
 from __future__ import annotations
 
 import argparse
+import bisect
 import re
 import sys
 from pathlib import Path
 
 try:
     from PIL import Image, ImageFont
-except ImportError:  # pragma: no cover - tooling dependency
-    sys.exit("Pillow is required: python3 -m pip install pillow")
+except ImportError:  # pragma: no cover - host check imports this module without Pillow
+    Image = None      # type: ignore[assignment]
+    ImageFont = None  # type: ignore[assignment]
 
 
 # --------------------------------------------------------------------------- #
@@ -174,9 +177,73 @@ def c_array(name: str, ctype: str, values: list[int], per_line: int,
     return f"static const {ctype} {name}[] = {{\n" + "\n".join(lines) + "\n};\n"
 
 
+def build_cmaps_section(code_points: list[int]) -> str:
+    """Emit CHARACTER MAPPING arrays + cmaps[] for sorted code_points (glyph_id = 1..N)."""
+    assert code_points == sorted(code_points), "code_points must be sorted"
+    ascii_cps = list(range(0x20, 0x7F))
+    assert code_points[:len(ascii_cps)] == ascii_cps, (
+        "ASCII 0x20..0x7E must be complete and contiguous at glyph ids 1..95"
+    )
+
+    # Every code point after 0x7E (including 0x80..0xFF such as ±, ·, ×, ÷!)
+    # MUST be mapped with its exact 1-based glyph_dsc index; skipping any range
+    # shifts every subsequent glyph id in SPARSE_TINY lookup.
+    rest: list[tuple[int, int]] = [
+        (idx + 1, cp) for idx, cp in enumerate(code_points) if cp > 0x7E
+    ]
+
+    # Partition into SPARSE_TINY chunks whose span fits in uint16_t range_length (<= 0xFFFF).
+    chunks: list[list[tuple[int, int]]] = []
+    for gid, cp in rest:
+        if not chunks or (cp - chunks[-1][0][1]) >= 0xFFFF:
+            chunks.append([(gid, cp)])
+        else:
+            chunks[-1].append((gid, cp))
+
+    src: list[str] = []
+    src.append("/*-----------------")
+    src.append(" *  CHARACTER MAPPING")
+    src.append(" *----------------*/")
+    src.append("/* ASCII: 0x20..0x7E, glyph ids 1..95 (FORMAT0_TINY). */")
+
+    for ci, chunk in enumerate(chunks, start=1):
+        base_cp = chunk[0][1]
+        offsets = [cp - base_cp for _, cp in chunk]
+        src.append(f"static const uint16_t unicode_list_{ci}[] = {{")
+        for i in range(0, len(offsets), 10):
+            src.append("    " + ", ".join("0x%04X" % v for v in offsets[i:i + 10]) + ",")
+        src.append("};")
+        src.append("")
+
+    src.append("static const lv_font_fmt_txt_cmap_t cmaps[] = {")
+    cmap_entries: list[str] = [
+        "    {\n"
+        "        .range_start = 0x20, .range_length = 95, .glyph_id_start = 1,\n"
+        "        .unicode_list = NULL, .glyph_id_ofs_list = NULL, .list_length = 0,\n"
+        "        .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY\n"
+        "    }"
+    ]
+    for ci, chunk in enumerate(chunks, start=1):
+        first_gid, base_cp = chunk[0]
+        last_cp = chunk[-1][1]
+        range_len = last_cp - base_cp + 1
+        assert 1 <= range_len <= 0xFFFF
+        cmap_entries.append(
+            "    {\n"
+            f"        .range_start = 0x{base_cp:02X}, .range_length = {range_len}, "
+            f".glyph_id_start = {first_gid},\n"
+            f"        .unicode_list = unicode_list_{ci}, .glyph_id_ofs_list = NULL,\n"
+            f"        .list_length = {len(chunk)},\n"
+            "        .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY\n"
+            "    }"
+        )
+    src.append(",\n".join(cmap_entries))
+    src.append("};")
+    return "\n".join(src)
+
+
 def emit(font_name: str, glyphs: list[Glyph], line_height: int, base_line: int,
          size: int, source_note: str) -> tuple[str, str]:
-    guard = f"{font_name.upper()}_H"
     header = f"""/* Generated by tools/gen_font.py -- do not edit by hand.
  *
  * {source_note}
@@ -200,16 +267,9 @@ LV_FONT_DECLARE({font_name});
             ".ofs_x = %d, .ofs_y = %d }," %
             (idx, g.adv, g.w, g.h, g.ofs_x, g.ofs_y))
 
-    # cmap 1: contiguous ASCII
-    ascii_cps = [c for c in range(0x20, 0x7F)]
-    ascii_present = [c for c in ascii_cps if any(g.cp == c for g in glyphs)]
-    assert ascii_present == ascii_cps, "ASCII block must be complete and contiguous"
-
-    # Everything else: one sparse range.
-    rest = [g for g in glyphs if g.cp > 0xFF]
-    range_start = rest[0].cp if rest else 0xA0
-    offsets = [g.cp - range_start for g in rest]
-    assert offsets == sorted(offsets) and offsets[-1] < 0xFFFF
+    cps = [g.cp for g in glyphs]
+    cmaps_section = build_cmaps_section(cps)
+    cmap_count = cmaps_section.count(".range_start =")
 
     src = []
     src.append("/* Generated by tools/gen_font.py -- do not edit by hand. */")
@@ -231,31 +291,7 @@ LV_FONT_DECLARE({font_name});
     src.extend(dsc_rows)
     src.append("};")
     src.append("")
-    src.append("/*-----------------")
-    src.append(" *  CHARACTER MAPPING")
-    src.append(" *----------------*/")
-    src.append("/* ASCII: 0x20..0x7E, glyph ids 1..95 (FORMAT0_TINY). */")
-    src.append("static const uint16_t unicode_list_1[] = {")
-    rows = []
-    for i in range(0, len(offsets), 10):
-        rows.append("    " + ", ".join("0x%04X" % v for v in offsets[i:i + 10]) + ",")
-    src.extend(rows)
-    src.append("};")
-    src.append("")
-    src.append("static const lv_font_fmt_txt_cmap_t cmaps[] = {")
-    src.append("    {")
-    src.append("        .range_start = 0x20, .range_length = 95, .glyph_id_start = 1,")
-    src.append("        .unicode_list = NULL, .glyph_id_ofs_list = NULL, .list_length = 0,")
-    src.append("        .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY")
-    src.append("    },")
-    src.append("    {")
-    src.append(f"        .range_start = 0x{range_start:02X}, .range_length = "
-               f"{offsets[-1] + 1 if offsets else 0}, .glyph_id_start = {len(ascii_cps) + 1},")
-    src.append("        .unicode_list = unicode_list_1, .glyph_id_ofs_list = NULL,")
-    src.append(f"        .list_length = {len(offsets)},")
-    src.append("        .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY")
-    src.append("    }")
-    src.append("};")
+    src.append(cmaps_section)
     src.append("")
     src.append("/*-----------------")
     src.append(" *  FONT DESCRIPTOR")
@@ -266,8 +302,8 @@ LV_FONT_DECLARE({font_name});
     src.append("    .cmaps = cmaps,")
     src.append("    .kern_dsc = NULL,")
     src.append("    .kern_scale = 0,")
-    src.append("    .cmap_num = 2,")
-    src.append(f"    .bpp = 4,")
+    src.append(f"    .cmap_num = {cmap_count},")
+    src.append("    .bpp = 4,")
     src.append("    .kern_classes = 0,")
     src.append("    .bitmap_format = LV_FONT_FMT_TXT_PLAIN,")
     src.append("    .stride = 0,")
@@ -291,8 +327,100 @@ LV_FONT_DECLARE({font_name});
 
 
 # --------------------------------------------------------------------------- #
-# Self-verification: decode the emitted C exactly like LVGL does
+# Self-verification: decode cmaps[] + glyph_dsc[] + glyph_bitmap[] like LVGL
 # --------------------------------------------------------------------------- #
+def parse_cmaps_from_c(c_text: str) -> list[dict[str, object]]:
+    """Parse unicode_list_* and cmaps[] from generated C source."""
+    ulists: dict[str, list[int]] = {}
+    for m in re.finditer(r"uint16_t\s+(unicode_list_\d+)\[\]\s*=\s*\{(.*?)\};", c_text, re.S):
+        vals = [int(tok, 16) if tok.startswith("0x") else int(tok)
+                for tok in re.findall(r"0x[0-9A-Fa-f]+|\d+", m.group(2))]
+        ulists[m.group(1)] = vals
+
+    cm_block = re.search(r"cmaps\[\]\s*=\s*\{(.*?)\n\};", c_text, re.S)
+    if not cm_block:
+        raise SystemExit("verify: cmaps[] missing from C file")
+
+    cmaps: list[dict[str, object]] = []
+    for entry in re.finditer(
+        r"\.range_start\s*=\s*(0x[0-9A-Fa-f]+|\d+)\s*,\s*"
+        r"\.range_length\s*=\s*(\d+)\s*,\s*"
+        r"\.glyph_id_start\s*=\s*(\d+)\s*,\s*"
+        r"\.unicode_list\s*=\s*(\w+)\s*,\s*"
+        r"\.glyph_id_ofs_list\s*=\s*(\w+)\s*,\s*"
+        r"\.list_length\s*=\s*(\d+)\s*,\s*"
+        r"\.type\s*=\s*(\w+)",
+        cm_block.group(1),
+    ):
+        rs_s, rl_s, gis_s, ulist_name, ofs_name, ll_s, ctype = entry.groups()
+        rs = int(rs_s, 16) if rs_s.startswith("0x") else int(rs_s)
+        rl = int(rl_s)
+        gis = int(gis_s)
+        ll = int(ll_s)
+        if not (0 < rl <= 0xFFFF):
+            raise SystemExit(f"verify: cmap range_length {rl} overflows uint16_t")
+        ulist = None if ulist_name == "NULL" else ulists.get(ulist_name)
+        if ulist_name != "NULL" and (ulist is None or len(ulist) != ll):
+            raise SystemExit(f"verify: {ulist_name} length mismatch")
+        if ulist is not None and ulist != sorted(ulist):
+            raise SystemExit(f"verify: {ulist_name} is not sorted for binary search")
+        if ofs_name != "NULL":
+            raise SystemExit(f"verify: unsupported glyph_id_ofs_list {ofs_name}")
+        cmaps.append({
+            "range_start": rs,
+            "range_length": rl,
+            "glyph_id_start": gis,
+            "unicode_list": ulist,
+            "type": ctype,
+        })
+
+    dsc_num_m = re.search(r"\.cmap_num\s*=\s*(\d+)", c_text)
+    if not dsc_num_m or int(dsc_num_m.group(1)) != len(cmaps):
+        raise SystemExit("verify: font_dsc.cmap_num does not match cmaps[] count")
+    return cmaps
+
+
+def lvgl_lookup_glyph_id(cmaps: list[dict[str, object]], cp: int) -> int:
+    """Replicate lv_font_get_glyph_dsc_fmt_txt() code point -> glyph_id lookup."""
+    for cm in cmaps:
+        rs = int(cm["range_start"])   # type: ignore[arg-type]
+        rl = int(cm["range_length"])  # type: ignore[arg-type]
+        if cp < rs or cp >= rs + rl:
+            continue
+        rcp = cp - rs
+        gis = int(cm["glyph_id_start"])  # type: ignore[arg-type]
+        ctype = str(cm["type"])
+        if ctype == "LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY":
+            return gis + rcp
+        if ctype == "LV_FONT_FMT_TXT_CMAP_SPARSE_TINY":
+            ulist = cm["unicode_list"]
+            assert isinstance(ulist, list)
+            pos = bisect.bisect_left(ulist, rcp)
+            if pos < len(ulist) and ulist[pos] == rcp:
+                return gis + pos
+            return 0
+        raise SystemExit(f"verify: unsupported cmap type {ctype}")
+    return 0
+
+
+def verify_c_font(c_text: str, expected_cps: list[int]) -> None:
+    """Verify that every code point in expected_cps resolves to its exact glyph_dsc row."""
+    dsc = re.findall(r"\{ \.bitmap_index = (\d+), \.adv_w = (\d+), \.box_w = (\d+), "
+                     r"\.box_h = (\d+), \.ofs_x = (-?\d+), \.ofs_y = (-?\d+) \}", c_text)
+    if len(dsc) != len(expected_cps) + 1:
+        raise SystemExit(
+            f"verify: {len(dsc)} glyph_dsc entries for {len(expected_cps)} code points"
+        )
+    cmaps = parse_cmaps_from_c(c_text)
+    for expected_gid, cp in enumerate(expected_cps, start=1):
+        got_gid = lvgl_lookup_glyph_id(cmaps, cp)
+        if got_gid != expected_gid:
+            raise SystemExit(
+                f"verify: U+{cp:04X} ({chr(cp)!r}) mapped to glyph_id {got_gid}, "
+                f"expected {expected_gid}"
+            )
+
+
 def verify(c_text: str, glyphs: list[Glyph], line_height: int) -> None:
     """Re-parse the generated arrays and compare against the rasterisation."""
     def grab(name: str) -> list[int]:
@@ -303,11 +431,11 @@ def verify(c_text: str, glyphs: list[Glyph], line_height: int) -> None:
         return [int(tok, 16) if tok.startswith("0x") else int(tok)
                 for tok in re.findall(r"0x[0-9A-Fa-f]+|\d+", body)]
 
+    verify_c_font(c_text, [g.cp for g in glyphs])
+
     bitmap = bytes(grab("glyph_bitmap"))
     dsc = re.findall(r"\{ \.bitmap_index = (\d+), \.adv_w = (\d+), \.box_w = (\d+), "
                      r"\.box_h = (\d+), \.ofs_x = (-?\d+), \.ofs_y = (-?\d+) \}", c_text)
-    if len(dsc) != len(glyphs) + 1:
-        raise SystemExit(f"verify: {len(dsc)} descriptors for {len(glyphs)} glyphs")
 
     for i, g in enumerate(glyphs, start=1):
         bi, adv, bw, bh, bx, by = (int(v) for v in dsc[i])
@@ -318,8 +446,6 @@ def verify(c_text: str, glyphs: list[Glyph], line_height: int) -> None:
 
         # Decode nibbles like lv_font_get_bitmap_fmt_txt (bpp 4, PLAIN, stride 0).
         out = []
-        acc = 0
-        n = 0
         for byte in bitmap[bi:bi + (len(g.levels) + 1) // 2]:
             out.append((byte >> 4) & 0xF)
             out.append(byte & 0xF)
@@ -327,13 +453,15 @@ def verify(c_text: str, glyphs: list[Glyph], line_height: int) -> None:
             raise SystemExit(f"verify: glyph U+{g.cp:04X} pixels decode differently")
         if by + bh > line_height:
             raise SystemExit(f"verify: glyph U+{g.cp:04X} exceeds line height")
-        del acc, n
 
-    print(f"verify: {len(glyphs)} glyphs, {len(bitmap)} bitmap bytes -- OK")
+    print(f"verify: {len(glyphs)} glyphs, {len(bitmap)} bitmap bytes, cmaps 1:1 -- OK")
 
 
 # --------------------------------------------------------------------------- #
 def main() -> None:
+    if Image is None or ImageFont is None:
+        sys.exit("Pillow is required: python3 -m pip install pillow")
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--font", required=True, help="source .otf/.ttf (not committed)")
     ap.add_argument("--size", type=int, default=12)
