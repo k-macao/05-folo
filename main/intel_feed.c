@@ -144,9 +144,12 @@ bool intel_feed_parse(const char *json, size_t len, intel_feed_t *out,
     const cJSON *it = NULL;
     cJSON_ArrayForEach(it, items) {
         if (out->count >= INTEL_MAX_ITEMS) { drop++; continue; }
-        intel_item_t parsed;
-        if (parse_item(it, out, &parsed)) out->items[out->count++] = parsed;
-        else drop++;
+        if (parse_item(it, out, &out->items[out->count])) {
+            out->count++;
+        } else {
+            memset(&out->items[out->count], 0, sizeof out->items[0]);
+            drop++;
+        }
     }
 
     if (dropped) *dropped = drop;

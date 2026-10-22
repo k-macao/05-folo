@@ -49,6 +49,9 @@ typedef struct {
 
 static size_t s_last_bytes;
 static int s_preferred_idx;
+// app_feed_fetch 只在单实例 feed_task 中调用，URL 列表放静态区省下 ~2.2 KB 任务栈。
+static char s_urls[MAX_FEED_CANDIDATES][URL_BUF_BYTES];
+static char s_mirror_buf[URL_BUF_BYTES];
 
 static void extract_host(const char *url, char *out, size_t cap)
 {
@@ -233,20 +236,20 @@ done:
     return result;
 }
 
-static void add_candidate(char list[][URL_BUF_BYTES], int *count, const char *url)
+static void add_candidate(int *count, const char *url)
 {
     if (!url || !url[0] || *count >= MAX_FEED_CANDIDATES) return;
     if (strlen(url) >= URL_BUF_BYTES) return;
     for (int i = 0; i < *count; i++) {
-        if (strcmp(list[i], url) == 0) return;
+        if (strcmp(s_urls[i], url) == 0) return;
     }
-    snprintf(list[*count], URL_BUF_BYTES, "%s", url);
+    snprintf(s_urls[*count], URL_BUF_BYTES, "%s", url);
     (*count)++;
 }
 
 // 若主地址形如 https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>，
 // 自动生成不经过 raw.githubusercontent.com / cdn.jsdelivr.net 的备用镜像。
-static void add_github_raw_mirrors(char list[][URL_BUF_BYTES], int *count, const char *raw_url)
+static void add_github_raw_mirrors(int *count, const char *raw_url)
 {
     const char *prefix = "https://raw.githubusercontent.com/";
     const size_t plen = strlen(prefix);
@@ -276,18 +279,20 @@ static void add_github_raw_mirrors(char list[][URL_BUF_BYTES], int *count, const
     ref[s3 - s2 - 1] = 0;
     snprintf(path, sizeof path, "%s", s3 + 1);
 
-    char mirror[URL_BUF_BYTES];
-    int n = snprintf(mirror, sizeof mirror, "https://testingcf.jsdelivr.net/gh/%s/%s@%s/%s",
+    int n = snprintf(s_mirror_buf, sizeof s_mirror_buf,
+                     "https://testingcf.jsdelivr.net/gh/%s/%s@%s/%s",
                      owner, repo, ref, path);
-    if (n > 0 && (size_t)n < sizeof mirror) add_candidate(list, count, mirror);
+    if (n > 0 && (size_t)n < sizeof s_mirror_buf) add_candidate(count, s_mirror_buf);
 
-    n = snprintf(mirror, sizeof mirror, "https://gcore.jsdelivr.net/gh/%s/%s@%s/%s",
+    n = snprintf(s_mirror_buf, sizeof s_mirror_buf,
+                 "https://gcore.jsdelivr.net/gh/%s/%s@%s/%s",
                  owner, repo, ref, path);
-    if (n > 0 && (size_t)n < sizeof mirror) add_candidate(list, count, mirror);
+    if (n > 0 && (size_t)n < sizeof s_mirror_buf) add_candidate(count, s_mirror_buf);
 
-    n = snprintf(mirror, sizeof mirror, "https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
+    n = snprintf(s_mirror_buf, sizeof s_mirror_buf,
+                 "https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
                  owner, repo, path, ref);
-    if (n > 0 && (size_t)n < sizeof mirror) add_candidate(list, count, mirror);
+    if (n > 0 && (size_t)n < sizeof s_mirror_buf) add_candidate(count, s_mirror_buf);
 }
 
 app_feed_result_t app_feed_fetch(intel_feed_t *out, int *dropped,
@@ -307,11 +312,10 @@ app_feed_result_t app_feed_fetch(intel_feed_t *out, int *dropped,
         }
     }
 
-    char urls[MAX_FEED_CANDIDATES][URL_BUF_BYTES];
     int count = 0;
-    add_candidate(urls, &count, CONFIG_APP_FEED_URL);
-    add_candidate(urls, &count, CONFIG_APP_FEED_URL_FALLBACK);
-    add_github_raw_mirrors(urls, &count, CONFIG_APP_FEED_URL);
+    add_candidate(&count, CONFIG_APP_FEED_URL);
+    add_candidate(&count, CONFIG_APP_FEED_URL_FALLBACK);
+    add_github_raw_mirrors(&count, CONFIG_APP_FEED_URL);
 
     if (count == 0) {
         if (err && err_cap) snprintf(err, err_cap, "未配置情报地址");
@@ -329,7 +333,7 @@ app_feed_result_t app_feed_fetch(intel_feed_t *out, int *dropped,
         const int idx = (step == 0) ? s_preferred_idx
                                     : (step <= s_preferred_idx ? step - 1 : step);
         char cur_err[64] = { 0 };
-        const app_feed_result_t res = fetch_once(urls[idx], out, dropped,
+        const app_feed_result_t res = fetch_once(s_urls[idx], out, dropped,
                                                  cur_err, sizeof cur_err);
         if (res == APP_FEED_OK) {
             s_preferred_idx = idx;
@@ -338,7 +342,7 @@ app_feed_result_t app_feed_fetch(intel_feed_t *out, int *dropped,
 
         last_res = res;
         snprintf(last_err, sizeof last_err, "%s", cur_err[0] ? cur_err : "拉取失败");
-        extract_host(urls[idx], last_host, sizeof last_host);
+        extract_host(s_urls[idx], last_host, sizeof last_host);
         if (idx == 0 || !primary_err[0]) {
             snprintf(primary_err, sizeof primary_err, "%s", last_err);
             snprintf(primary_host, sizeof primary_host, "%s", last_host);

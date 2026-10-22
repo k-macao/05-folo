@@ -24,15 +24,14 @@ CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_DEF_REFR_PERIOD=20
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
-# LVGL 9.5 内置 malloc 池大小(字节)。它是独立静态区、不与系统堆共享,默认 64KB 偏大。
-# 本应用界面仅几十个 label + 矩形且每次原子销毁旧屏，24KB 充裕，省出 40KB 给 Wi-Fi/TLS。
-CONFIG_LV_MEM_SIZE=24576
-
-# --- TLS (无 PSRAM 的 ESP32-C3 按需动态分配收发缓冲) ---
-CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# LVGL 内置 malloc 池大小(KB, Kconfig 真实配置名)。默认 64KB 偏大；
+# 本界面仅几十个 label + 矩形且每次原子销毁旧屏，24KB 充裕，省出 40KB 给 Wi-Fi/TLS。
+CONFIG_LV_MEM_SIZE_KILOBYTES=24
 
 # --- 系统 ---
 CONFIG_FREERTOS_HZ=1000
+# 默认 app_main 栈仅 3584B，初始化显示/LVGL/NVS 时容易栈溢出导致开机重启屏闪。
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # --- Bluetooth LE ---
 # 本应用不用 BLE（没有配网、没有 BLE 数据通道），关掉以省 RAM 与 Flash。

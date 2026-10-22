@@ -6,14 +6,22 @@ cd "$(dirname "$0")/.."
 OUT=tests/build
 mkdir -p "$OUT"
 
-echo "== host tests =="
-gcc -std=c11 -Wall -Wextra -Werror -Imain \
-    -o "$OUT/test_logic" tests/test_logic.c main/intel_logic.c
+echo "== host tests (with -Og, format-truncation & firmware stack-usage<=1024B) =="
+gcc -std=c11 -Og -Wall -Wextra -Werror -Werror=format-truncation -Wstack-usage=1024 -Imain \
+    -c main/intel_logic.c -o "$OUT/intel_logic.o"
+gcc -std=c11 -Og -Wall -Wextra -Werror -Werror=format-truncation -Wstack-usage=1024 \
+    -Imain -Itests/third_party/cJSON \
+    -c main/intel_feed.c -o "$OUT/intel_feed.o"
+gcc -std=c11 -Og -Wall -Wextra -Werror -Imain -Itests/third_party/cJSON \
+    -c tests/third_party/cJSON/cJSON.c -o "$OUT/cJSON.o"
+
+gcc -std=c11 -Og -Wall -Wextra -Werror -Imain \
+    -o "$OUT/test_logic" tests/test_logic.c "$OUT/intel_logic.o"
 "$OUT/test_logic"
 
-gcc -std=c11 -Wall -Wextra -Werror -Imain -Itests/third_party/cJSON \
-    -o "$OUT/test_feed" tests/test_feed.c main/intel_feed.c main/intel_logic.c \
-    tests/third_party/cJSON/cJSON.c -lm
+gcc -std=c11 -Og -Wall -Wextra -Werror -Imain -Itests/third_party/cJSON \
+    -o "$OUT/test_feed" tests/test_feed.c "$OUT/intel_feed.o" "$OUT/intel_logic.o" \
+    "$OUT/cJSON.o" -lm
 "$OUT/test_feed" preview/feed.json
 
 echo "== rounding safe-area check =="
@@ -37,6 +45,39 @@ int main(void) {
 }
 EOF
 "$OUT/test_rounding"
+
+echo "== boot stability & sdkconfig guard =="
+python3 - <<'PY'
+import pathlib, re
+
+cfg = pathlib.Path("sdkconfig.defaults").read_text(encoding="utf-8")
+kv = {}
+for raw in cfg.splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    kv[k.strip()] = v.strip()
+
+stack = int(kv.get("CONFIG_ESP_MAIN_TASK_STACK_SIZE", "0"))
+if stack < 8192:
+    raise SystemExit(f"CONFIG_ESP_MAIN_TASK_STACK_SIZE too small ({stack} < 8192); risks boot loop")
+if "CONFIG_LV_MEM_SIZE" in kv:
+    raise SystemExit("Use CONFIG_LV_MEM_SIZE_KILOBYTES in sdkconfig.defaults (CONFIG_LV_MEM_SIZE is ignored by LVGL Kconfig)")
+if kv.get("CONFIG_LV_MEM_SIZE_KILOBYTES") != "24":
+    raise SystemExit(f"Expected CONFIG_LV_MEM_SIZE_KILOBYTES=24, got {kv.get('CONFIG_LV_MEM_SIZE_KILOBYTES')}")
+if kv.get("CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG") != "y":
+    raise SystemExit("CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y required (GPIO21 is LCD backlight)")
+
+for src in sorted(pathlib.Path("main").glob("*.c")):
+    code = re.sub(r"//.*|/\*[\s\S]*?\*/", "", src.read_text(encoding="utf-8"))
+    if "ESP_ERROR_CHECK" in code:
+        raise SystemExit(f"{src}: avoid ESP_ERROR_CHECK in app code (causes boot-loop backlight flash)")
+    if "lv_refr_now" in code:
+        raise SystemExit(f"{src}: do not call lv_refr_now outside esp_lvgl_port task")
+
+print(f"boot guard ok: app_main stack={stack}B, LVGL pool={kv['CONFIG_LV_MEM_SIZE_KILOBYTES']}KB, zero abort/refr hazards")
+PY
 
 echo "== feed tool =="
 python3 tools/make_feed.py --in preview/feed.json --check

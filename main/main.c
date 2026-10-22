@@ -32,6 +32,7 @@
 static const char *TAG = "signal_log";
 
 #define INPUT_QUEUE_DEPTH 8
+#define INPUT_TASK_STACK  6144
 #define FEED_TASK_STACK   16384
 #define REFRESH_PERIOD_US ((int64_t)CONFIG_APP_REFRESH_MINUTES * 60 * 1000000)
 
@@ -62,6 +63,7 @@ static int s_detail_count;
 static intel_line_t s_detail_lines[INTEL_DETAIL_MAX_LINES];
 static char s_clock[8] = "--:--";
 static char s_err[256] = "等待首次同步";
+static char s_fetch_err[256];
 static int s_battery = -1;
 static int64_t s_sync_us;
 static uint32_t s_last_minute_key;
@@ -78,15 +80,16 @@ static void normalize_lines(char *dst, size_t cap, const char *src)
 
     size_t used = 0;
     const char *p = src;
+    char raw_line[96];
+    char clean[96];
+
     while (*p && used + 2 < cap) {
         const char *nl = strchr(p, '\n');
-        char raw_line[128];
         const size_t raw_len = nl ? (size_t)(nl - p) : strlen(p);
         const size_t keep = raw_len < sizeof raw_line - 1 ? raw_len : sizeof raw_line - 1;
         memcpy(raw_line, p, keep);
         raw_line[keep] = 0;
 
-        char clean[128];
         intel_normalize(clean, sizeof clean, raw_line);
 
         const size_t clen = strlen(clean);
@@ -282,8 +285,9 @@ static void do_refresh(void)
 
     ESP_LOGI(TAG, "开始拉取 %s", CONFIG_APP_FEED_URL);
     int dropped = 0;
-    char err[256] = { 0 };
-    const app_feed_result_t result = app_feed_fetch(&s_incoming, &dropped, err, sizeof err);
+    s_fetch_err[0] = 0;
+    const app_feed_result_t result = app_feed_fetch(&s_incoming, &dropped,
+                                                    s_fetch_err, sizeof s_fetch_err);
 
     if (!bsp_lvgl_lock(1000)) return;
 
@@ -298,7 +302,7 @@ static void do_refresh(void)
         ESP_LOGI(TAG, "同步成功：%d 条（丢弃 %d）", s_feed.count, dropped);
     } else if (result != APP_FEED_ERR_WIFI || !s_have_feed) {
         s_stale = true;
-        normalize_lines(s_err, sizeof s_err, err[0] ? err : "拉取失败");
+        normalize_lines(s_err, sizeof s_err, s_fetch_err[0] ? s_fetch_err : "拉取失败");
         if (!s_have_feed) s_screen = SCR_ERROR;
         ESP_LOGW(TAG, "同步失败：%s", s_err);
     } else {
@@ -346,7 +350,7 @@ void app_main(void)
 
     esp_err_t nvs = nvs_flash_init();
     if (nvs == ESP_ERR_NVS_NO_FREE_PAGES || nvs == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
+        (void)nvs_flash_erase();
         nvs = nvs_flash_init();
     }
     if (nvs != ESP_OK) ESP_LOGW(TAG, "NVS 初始化失败: %s", esp_err_to_name(nvs));
@@ -363,7 +367,7 @@ void app_main(void)
         ESP_LOGE(TAG, "按键队列创建失败");
         return;
     }
-    if (xTaskCreate(input_task, "input", 4096, NULL, 5, NULL) != pdPASS) {
+    if (xTaskCreate(input_task, "input", INPUT_TASK_STACK, NULL, 5, NULL) != pdPASS) {
         ESP_LOGE(TAG, "按键任务创建失败");
         return;
     }
@@ -375,12 +379,9 @@ void app_main(void)
 
     refresh_battery();
     s_busy = true;
-    if (bsp_lvgl_lock(1000)) {
-        render_locked();
-        // 先把黑底首帧刷进 ST7789 显存，再开背光，避免上电花屏/白屏闪一下。
-        lv_refr_now(NULL);
-        bsp_lvgl_unlock();
-    }
+    render();
+    // 让 esp_lvgl_port 自身任务先刷完首帧黑底再开背光（不要在 app_main 里跨任务调 lv_refr_now）。
+    vTaskDelay(pdMS_TO_TICKS(40));
     bsp_display_backlight(100);
 
     if (xTaskCreate(feed_task, "feed", FEED_TASK_STACK, NULL, 4, NULL) != pdPASS) {
