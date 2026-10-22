@@ -91,8 +91,11 @@ BSP 直接取自 [FoloToy/ai-passport](https://github.com/FoloToy/ai-passport) �
 所以产出的是可直接写入的镜像：
 
 ```
-GitHub → Actions → firmware → Artifacts → 005-signal-log-full   # 合并镜像 + sha256
+https://github.com/k-macao/05-folo/releases/download/firmware-latest/005-signal-log-full.bin
+https://github.com/k-macao/05-folo/releases/download/firmware-latest/SHA256SUMS.txt
 ```
+
+（同一份东西也在 Actions → firmware → Artifacts 里，30 天有效）
 
 下载解压到 `build/`，然后把设备插到你自己的电脑上（能传数据的 Type-C 线）：
 
@@ -169,7 +172,7 @@ docs/               feed 契约、字体资产说明
 
 | 项目 | 结果 | 说明 |
 | --- | --- | --- |
-| Build | **CI 中** | 本地沙箱无法访问 dl.espressif.com，改由 GitHub Actions 用 `espressif/idf:v5.5.3` 编译；结果见 Actions 的 `firmware` 工作流 |
+| Build | **PASS** | GitHub Actions + `espressif/idf:v5.5.3` 编译通过；合并镜像 1,903,008 B，镜像结构校验（引导头/ESP32-C3/分区表 MD5/app 描述符）全绿 |
 | 语法检查 | **PASS** | `main/*.c` 与字体文件用最小桩头文件做过 `gcc -fsyntax-only -Wall -Wextra`；只验证 C 语法与类型，不代表真实 LVGL/IDF API 能链接通过 |
 | Host tests | **PASS** | `./tools/check.sh`：逻辑/换行/时间/解析共 40+ 断言 + 字体码点覆盖 |
 | Device tests | **NOT RUN** | 没有连接设备；未执行任何真机验证 |

@@ -69,9 +69,25 @@ fi
 [[ -f "$BIN" ]] || { echo "找不到镜像 $BIN（先跑 GitHub Actions 的 firmware 工作流并下载产物）" >&2; exit 1; }
 
 # ---------------------------------------------------------------- 校验
-if [[ -f "$(dirname "$BIN")/SHA256SUMS.txt" ]]; then
+SUMS="$(dirname "$BIN")/SHA256SUMS.txt"
+if [[ -f "$SUMS" ]]; then
     echo "== 校验 sha256"
-    ( cd "$(dirname "$BIN")" && shasum -a 256 -c SHA256SUMS.txt || sha256sum -c SHA256SUMS.txt )
+    expected=$(awk -v want="$(basename "$BIN")" 'index($0, want) { print $1; exit }' "$SUMS" 2>/dev/null || true)
+    if [[ -n "$expected" ]]; then
+        if command -v sha256sum >/dev/null 2>&1; then
+            actual=$(sha256sum "$BIN" | awk '{print $1}')
+        else
+            actual=$(shasum -a 256 "$BIN" | awk '{print $1}')
+        fi
+        if [[ "$expected" != "$actual" ]]; then
+            echo "sha256 不匹配：期望 $expected，实际 $actual" >&2
+            echo "镜像可能没下载完整，重新下载再试。" >&2
+            exit 1
+        fi
+        echo "sha256 OK ($actual)"
+    else
+        echo "SHA256SUMS.txt 里没有 $(basename "$BIN")，跳过校验"
+    fi
 fi
 
 # ---------------------------------------------------------------- 提示

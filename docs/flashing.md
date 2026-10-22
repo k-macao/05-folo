@@ -38,6 +38,9 @@ idf.py merge-bin -o 005-signal-log-full.bin   # 产物落在 build/ 下
 ```bash
 # macOS 的串口是 /dev/cu.usbmodem*，Linux 是 /dev/ttyACM*
 ./tools/flash.sh --bin build/005-signal-log-full.bin
+
+# 想先确认下载到的镜像到底是什么，可以单独跑结构校验
+python3 tools/verify_image.py build/005-signal-log-full.bin
 ```
 
 脚本会：自动找串口 → 校验 sha256 → 打印"整机刷新会覆盖 NVS"的提示 → 用 esptool
