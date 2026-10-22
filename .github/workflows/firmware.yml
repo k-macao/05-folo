@@ -49,8 +49,11 @@ jobs:
 
       - name: Checksums and sizes
         run: |
-          ls -l build/*.bin
-          sha256sum build/005-signal-log-full.bin | tee build/SHA256SUMS.txt
+          # build/ 由容器内的 root 创建，宿主机步骤不能往里写；校验文件放仓库根目录。
+          find build -maxdepth 1 -type f -name '*.bin' -printf '%p %s bytes\n' || true
+          test -f build/005-signal-log-full.bin
+          sha256sum build/005-signal-log-full.bin > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Upload merged image
         uses: actions/upload-artifact@v4
@@ -58,7 +61,7 @@ jobs:
           name: 005-signal-log-full
           path: |
             build/005-signal-log-full.bin
-            build/SHA256SUMS.txt
+            SHA256SUMS.txt
           retention-days: 30
 
       - name: Publish build log on failure
