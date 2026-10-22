@@ -85,6 +85,28 @@ BSP 直接取自 [FoloToy/ai-passport](https://github.com/FoloToy/ai-passport) �
 | OK 短按 | 打开详情 | 翻一页（到底回顶） | 重新拉取 |
 | OK 长按 | 立即刷新 | 返回列表 | 重新拉取 |
 
+## 烧录到真机（一步）
+
+编译在 GitHub runner 上完成——这个开发沙箱没有 USB 直通，也没有 ESP-IDF 工具链，
+所以产出的是可直接写入的镜像：
+
+```
+GitHub → Actions → firmware → Artifacts → 005-signal-log-full   # 合并镜像 + sha256
+```
+
+下载解压到 `build/`，然后把设备插到你自己的电脑上（能传数据的 Type-C 线）：
+
+```bash
+./tools/flash.sh                      # 从 0x0 写合并镜像（整机刷新）
+./tools/flash.sh --mode app           # 只写 app 到 0x10000，保留 NVS
+```
+
+脚本自动找串口、校验 sha256、按 FoloToy 的约定给出提示（合并镜像会覆盖 NVS/PHY）。
+FoloToy 官方的[安装社区玩法](https://ai-passport.folotoy.cn/guides/flash-official-firmware/)
+页面只接受社区托管的作品，不接受任意 `.bin`，所以自建固件用上面的 esptool 路径。
+
+细节与上机验收清单：[`docs/flashing.md`](docs/flashing.md)。
+
 ## 固件：编译与烧录
 
 要求 **ESP-IDF 5.5.3**（ESP32-C3）。组件依赖由 `components/bsp/idf_component.yml` 声明
@@ -147,7 +169,7 @@ docs/               feed 契约、字体资产说明
 
 | 项目 | 结果 | 说明 |
 | --- | --- | --- |
-| Build | **NOT RUN** | 当前开发环境没有 ESP-IDF 5.5.3 工具链（也无法访问 dl.espressif.com），未生成镜像 |
+| Build | **CI 中** | 本地沙箱无法访问 dl.espressif.com，改由 GitHub Actions 用 `espressif/idf:v5.5.3` 编译；结果见 Actions 的 `firmware` 工作流 |
 | 语法检查 | **PASS** | `main/*.c` 与字体文件用最小桩头文件做过 `gcc -fsyntax-only -Wall -Wextra`；只验证 C 语法与类型，不代表真实 LVGL/IDF API 能链接通过 |
 | Host tests | **PASS** | `./tools/check.sh`：逻辑/换行/时间/解析共 40+ 断言 + 字体码点覆盖 |
 | Device tests | **NOT RUN** | 没有连接设备；未执行任何真机验证 |
