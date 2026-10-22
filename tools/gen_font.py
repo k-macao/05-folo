@@ -129,7 +129,7 @@ def pack_4bpp(g: Glyph) -> bytes:
 
 
 def rasterise(font: ImageFont.FreeTypeFont, cp: int, crop_top: int,
-              line_height: int) -> Glyph:
+              line_height: int, base_line: int) -> Glyph:
     ch = chr(cp)
     g = Glyph(cp)
     g.adv = int(round(font.getlength(ch) * 16))
@@ -149,17 +149,19 @@ def rasterise(font: ImageFont.FreeTypeFont, cp: int, crop_top: int,
 
     g.w, g.h = img.size
     g.ofs_x = x0
-    g.ofs_y = y0 - crop_top
+    top_y = y0 - crop_top
+    if top_y + g.h > line_height:
+        raise SystemExit(
+            f"glyph U+{cp:04X} overflows the {line_height}px line "
+            f"(top_y {top_y} + h {g.h})")
+    # LVGL places glyph top at: pos.y + (line_height - base_line) - box_h - ofs_y
+    g.ofs_y = (line_height - base_line) - g.h - top_y
     if g.w > 255 or g.h > 255:
         raise SystemExit(f"glyph U+{cp:04X} too large ({g.w}x{g.h})")
     if not (-128 <= g.ofs_x <= 127 and -128 <= g.ofs_y <= 127):
         raise SystemExit(f"glyph U+{cp:04X} offset out of int8 range")
 
     levels = [min(15, (v * 15 + 127) // 255) for v in img.tobytes()]
-    if g.ofs_y + g.h > line_height:
-        raise SystemExit(
-            f"glyph U+{cp:04X} overflows the {line_height}px line "
-            f"(ofs_y {g.ofs_y} + h {g.h})")
     g.levels = levels
     g.bitmap = pack_4bpp(g)
     return g
@@ -404,7 +406,13 @@ def lvgl_lookup_glyph_id(cmaps: list[dict[str, object]], cp: int) -> int:
 
 
 def verify_c_font(c_text: str, expected_cps: list[int]) -> None:
-    """Verify that every code point in expected_cps resolves to its exact glyph_dsc row."""
+    """Verify cmaps[] 1:1 lookup and LVGL baseline ofs_y coordinates."""
+    lh_m = re.search(r"\.line_height\s*=\s*(\d+)", c_text)
+    bl_m = re.search(r"\.base_line\s*=\s*(\d+)", c_text)
+    if not lh_m or not bl_m:
+        raise SystemExit("verify: line_height/base_line missing")
+    lh, bl = int(lh_m.group(1)), int(bl_m.group(1))
+
     dsc = re.findall(r"\{ \.bitmap_index = (\d+), \.adv_w = (\d+), \.box_w = (\d+), "
                      r"\.box_h = (\d+), \.ofs_x = (-?\d+), \.ofs_y = (-?\d+) \}", c_text)
     if len(dsc) != len(expected_cps) + 1:
@@ -419,9 +427,16 @@ def verify_c_font(c_text: str, expected_cps: list[int]) -> None:
                 f"verify: U+{cp:04X} ({chr(cp)!r}) mapped to glyph_id {got_gid}, "
                 f"expected {expected_gid}"
             )
+        _, _, bw, bh, _, oy = (int(v) for v in dsc[expected_gid])
+        if bw > 0 and bh > 0:
+            top_y = (lh - bl) - bh - oy
+            if top_y + bh > lh:
+                raise SystemExit(f"verify: U+{cp:04X} overflows line height (top_y={top_y}, h={bh})")
+            if cp == ord(".") and top_y < lh // 2:
+                raise SystemExit(f"verify: '.' top_y={top_y} sits in upper half (inverted ofs_y?)")
 
 
-def verify(c_text: str, glyphs: list[Glyph], line_height: int) -> None:
+def verify(c_text: str, glyphs: list[Glyph], line_height: int, base_line: int) -> None:
     """Re-parse the generated arrays and compare against the rasterisation."""
     def grab(name: str) -> list[int]:
         m = re.search(r"%s\[\]\s*=\s*\{(.*?)\};" % name, c_text, re.S)
@@ -451,7 +466,7 @@ def verify(c_text: str, glyphs: list[Glyph], line_height: int) -> None:
             out.append(byte & 0xF)
         if out[:len(g.levels)] != g.levels:
             raise SystemExit(f"verify: glyph U+{g.cp:04X} pixels decode differently")
-        if by + bh > line_height:
+        if bh > 0 and ((line_height - base_line) - bh - by) + bh > line_height:
             raise SystemExit(f"verify: glyph U+{g.cp:04X} exceeds line height")
 
     print(f"verify: {len(glyphs)} glyphs, {len(bitmap)} bitmap bytes, cmaps 1:1 -- OK")
@@ -494,7 +509,7 @@ def main() -> None:
     glyphs: list[Glyph] = []
     for cp in cps:
         try:
-            glyphs.append(rasterise(face, cp, crop_top, line_height))
+            glyphs.append(rasterise(face, cp, crop_top, line_height, base_line))
         except Exception as exc:  # noqa: BLE001 - report which code point failed
             raise SystemExit(f"rasterise U+{cp:04X} failed: {exc}") from exc
 
@@ -518,7 +533,7 @@ def main() -> None:
     source_note = (f"Source: {Path(args.font).name} {args.size}px; rasterised by Pillow/FreeType; "
                    f"inventory {len(glyphs)} code points")
     header, c_text = emit(args.name, glyphs, line_height, base_line, args.size, source_note)
-    verify(c_text, glyphs, line_height)
+    verify(c_text, glyphs, line_height, base_line)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

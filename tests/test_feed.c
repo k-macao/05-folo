@@ -106,6 +106,23 @@ static void test_errors(void)
     const char *noitems = "{}";
     CHECK(!intel_feed_parse(noitems, strlen(noitems), &feed, NULL, err, sizeof err));
     CHECK(!intel_feed_parse(NULL, 0, &feed, NULL, err, sizeof err));
+
+    const char *html = "<!DOCTYPE html><html><body>blocked</body></html>";
+    CHECK(!intel_feed_parse(html, strlen(html), &feed, NULL, err, sizeof err));
+    CHECK(strstr(err, "HTML") != NULL);
+
+    // GitHub Contents API 默认 JSON（base64 content，含换行符）也应能透明解包。
+    const char *gh_wrapped =
+        "{\"name\":\"feed.json\",\"encoding\":\"base64\","
+        "\"content\":\"eyJzY2hlbWEiOjEsImdlbmVyYXRlZF9hdCI6IjIwMjYtMTAtMjNUMDk6MDA6\\n"
+        "MDArMDg6MDAiLCJpdGVtcyI6W3sidGl0bGUiOiJHaXRIdWIgQVBJIOiurSIs\\n"
+        "InRpbWUiOiIyMDI2LTEwLTIzVDA4OjQyOjAwKzA4OjAwIiwidGltZV9ncmFk\\n"
+        "ZSI6IkVYQUNUIn1dfQ==\\n\"}";
+    int dropped = -1;
+    CHECK(intel_feed_parse(gh_wrapped, strlen(gh_wrapped), &feed, &dropped, err, sizeof err));
+    CHECK(feed.count == 1);
+    CHECK(dropped == 0);
+    CHECK(strcmp(feed.items[0].hhmm, "08:42") == 0);
 }
 
 static void test_sample_file(const char *path)
