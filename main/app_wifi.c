@@ -10,6 +10,7 @@
 #include "freertos/event_groups.h"
 #include "sdkconfig.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "app_wifi";

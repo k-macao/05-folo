@@ -186,13 +186,27 @@ static void render_message(const ui_view_t *v)
     snprintf(buf, sizeof buf, "%s", v->message ? v->message : "");
     char lines[8][INTEL_LINE_BYTES];
     int n = 0;
-    char *saveptr = NULL;
-    for (char *tok = strtok_r(buf, "\n", &saveptr); tok && n < 8; tok = strtok_r(NULL, "\n", &saveptr)) {
-        char wrapped[3][INTEL_LINE_BYTES];
-        int w = intel_wrap(tok, INTEL_DETAIL_CELLS, 3, wrapped, 3);
-        for (int i = 0; i < w && n < 8; i++) {
-            snprintf(lines[n++], INTEL_LINE_BYTES, "%s", wrapped[i]);
+
+    // 按 \n 分段后各自换行，最多 8 行（状态页不做滚动）。
+    const char *para = buf;
+    while (*para && n < 8) {
+        const char *nl = strchr(para, '\n');
+        const size_t len = nl ? (size_t)(nl - para) : strlen(para);
+        char seg[INTEL_LINE_BYTES];
+        if (len > 0) {
+            const size_t keep = len < sizeof seg - 1 ? len : sizeof seg - 1;
+            memcpy(seg, para, keep);
+            seg[keep] = 0;
+            char wrapped[3][INTEL_LINE_BYTES];
+            const int w = intel_wrap(seg, INTEL_DETAIL_CELLS, 3, wrapped, 3);
+            for (int i = 0; i < w && n < 8; i++) {
+                snprintf(lines[n++], INTEL_LINE_BYTES, "%s", wrapped[i]);
+            }
+        } else {
+            n++;                       // 空行保留，用于段落间距
         }
+        if (!nl) break;
+        para = nl + 1;
     }
     for (int i = 0; i < n; i++) {
         text(s_scr, 6, 86 + i * 15, lines[i], UI_FG);

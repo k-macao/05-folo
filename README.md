@@ -147,7 +147,8 @@ docs/               feed 契约、字体资产说明
 
 | 项目 | 结果 | 说明 |
 | --- | --- | --- |
-| Build | **NOT RUN** | 当前开发环境没有 ESP-IDF 5.5.3 工具链（也无法访问 dl.espressif.com），固件未编译 |
+| Build | **NOT RUN** | 当前开发环境没有 ESP-IDF 5.5.3 工具链（也无法访问 dl.espressif.com），未生成镜像 |
+| 语法检查 | **PASS** | `main/*.c` 与字体文件用最小桩头文件做过 `gcc -fsyntax-only -Wall -Wextra`；只验证 C 语法与类型，不代表真实 LVGL/IDF API 能链接通过 |
 | Host tests | **PASS** | `./tools/check.sh`：逻辑/换行/时间/解析共 40+ 断言 + 字体码点覆盖 |
 | Device tests | **NOT RUN** | 没有连接设备；未执行任何真机验证 |
 | Unverified | 屏幕上的中文渲染、Wi-Fi/TLS 实际连通、按键手感、电量读数、刷新时的闪烁 |
