@@ -1,0 +1,102 @@
+name: firmware
+
+# 在 GitHub 的 runner 上编译固件并产出合并镜像（本仓库的本地沙箱既没有 ESP-IDF 工具链，
+# 也没有 USB 直通，所以镜像在这里产出、烧录在你自己的电脑上做）。
+#
+# 产物：005-signal-log-full.bin —— 从 0x0 起的合并镜像，可直接用 esptool 写入，
+# 或者 ./tools/flash.sh 一键完成。
+#
+# 构建日志：正常时在 Actions 页面；失败时会把最后 120 行贴到本次提交的提交评论里
+# （Actions 日志下载域名在部分网络下不可达，提交评论走 api.github.com，能稳定读到）。
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - "main/**"
+      - "components/**"
+      - "sdkconfig.defaults"
+      - "partitions.csv"
+      - "CMakeLists.txt"
+      - ".github/workflows/firmware.yml"
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and merge image (ESP-IDF 5.5.3)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.3
+          target: esp32c3
+          # 日志必须写到挂载进来的仓库目录（容器里的 /tmp 不是宿主机的 /tmp）。
+          command: |
+            ( idf.py build &&
+              idf.py merge-bin -o 005-signal-log-full.bin ) > build-log.txt 2>&1
+            rc=$?
+            tail -n 400 build-log.txt
+            exit $rc
+
+      - name: Checksums and sizes
+        run: |
+          # build/ 由容器内的 root 创建，宿主机步骤不能往里写；校验文件放仓库根目录。
+          find build -maxdepth 1 -type f -name '*.bin' -printf '%p %s bytes\n' || true
+          test -f build/005-signal-log-full.bin
+          sha256sum build/005-signal-log-full.bin > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Verify merged image structure
+        run: python3 tools/verify_image.py build/005-signal-log-full.bin | tee image-report.txt
+
+      - name: Upload merged image
+        uses: actions/upload-artifact@v4
+        with:
+          name: 005-signal-log-full
+          path: |
+            build/005-signal-log-full.bin
+            SHA256SUMS.txt
+            image-report.txt
+          retention-days: 30
+
+      - name: Publish firmware release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=firmware-latest
+          notes=$(printf '自动构建的 005 SIGNAL.LOG 固件（ESP-IDF v5.5.3 / esp32c3）。\n\n提交: %s\n\n烧录：\n```\nesptool.py --chip esp32c3 -p /dev/ttyACM0 -b 460800 write_flash 0x0 005-signal-log-full.bin\n```\n或在本仓库执行 ./tools/flash.sh\n\n### 镜像校验\n```\n%s\n```' "${{ github.sha }}" "$(cat image-report.txt)")
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+            --title "005 SIGNAL.LOG firmware (latest)" --prerelease --notes "$notes"
+          gh release upload "$tag" build/005-signal-log-full.bin SHA256SUMS.txt image-report.txt --clobber
+          gh release edit "$tag" --notes "$notes"
+
+      - name: Publish build log on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== last 120 lines of the build ==="
+          tail -n 120 build-log.txt 2>/dev/null || echo "(no build-log.txt)"
+          body_file=$(mktemp)
+          {
+            echo '### 编译错误（error / FAILED / undefined reference，带 2 行上下文）'
+            echo '```'
+            grep -nE -B2 -A2 "error:|FAILED:|undefined reference|CMake Error|ninja: build stopped" \
+                 build-log.txt 2>/dev/null | head -n 260 || true
+            echo '```'
+            echo '### 尾部'
+            echo '```'
+            tail -n 200 build-log.txt 2>/dev/null || echo "(no build-log.txt)"
+            echo '```'
+          } > "$body_file"
+          gh api -X POST "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+             -f body="$(cat "$body_file")" --jq '.html_url' || echo "commit comment failed"

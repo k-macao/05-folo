@@ -1,0 +1,29 @@
+menu "005 Signal Log"
+
+    config APP_WIFI_SSID
+        string "Wi-Fi SSID (2.4 GHz)"
+        default "your-ssid"
+        help
+            设备只支持 2.4 GHz。填好后重新 idf.py build flash monitor。
+
+    config APP_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+        help
+            留空表示开放网络。
+
+    config APP_FEED_URL
+        string "005 feed URL"
+        default "https://k-macao.github.io/05-folo/feed.json"
+        help
+            指向 tools/make_feed.py 生成、托管在 GitHub Pages / 任意静态服务器上的
+            feed.json。支持 https://（内置证书 bundle）和 http://。
+
+    config APP_REFRESH_MINUTES
+        int "Refresh period (minutes)"
+        range 1 240
+        default 10
+        help
+            与 005 的 180 分钟窗口配合：10 分钟拉一次，列表始终是三小时内的情报。
+
+endmenu

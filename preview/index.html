@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>005 · SIGNAL.LOG — FoloToy AI Passport 预览</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="stage">
+  <section class="device-col">
+    <div class="device" id="device">
+      <div class="lanyard" aria-hidden="true"></div>
+      <div class="brand">FOLOTOY <span>AI PASSPORT</span></div>
+      <div class="bezel">
+        <div class="screen-stage" id="screenStage">
+          <div class="screen" id="screen" role="img" aria-label="设备屏幕预览"></div>
+          <div class="glass" aria-hidden="true"></div>
+          <div class="scanlines" aria-hidden="true"></div>
+          <div class="vignette" aria-hidden="true"></div>
+          <div class="flicker" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="key-group">
+          <button class="key" data-key="up" aria-label="上">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5 4 15h16z"/></svg>
+          </button>
+          <button class="key" data-key="down" aria-label="下">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19 4 9h16z"/></svg>
+          </button>
+        </div>
+        <button class="key key-ok" data-key="ok" aria-label="确定">
+          <span>OK</span>
+        </button>
+      </div>
+      <div class="caption">240 × 320 · 三按键 · ESP32-C3</div>
+    </div>
+  </section>
+
+  <section class="info-col">
+    <p class="kicker">005 事件雷达 · 硬件显示端</p>
+    <h1>把 <em>SIGNAL.LOG</em> 装进口袋</h1>
+    <p class="lede">
+      浏览器里这块屏和固件用的是同一套排版：6 px 半格 / 12 px 全角、每行 38 格、
+      磷光绿 + 反白选中。左侧是 1:1 逻辑像素预览，下面是这台设备现在拿到的数据。
+    </p>
+
+    <dl class="facts" id="facts">
+      <div><dt>数据</dt><dd id="factFeed">feed.json</dd></div>
+      <div><dt>同步</dt><dd id="factSync">—</dd></div>
+      <div><dt>情报</dt><dd id="factCount">—</dd></div>
+      <div><dt>丢弃</dt><dd id="factDropped">—</dd></div>
+    </dl>
+
+    <table class="keys">
+      <thead><tr><th>按键</th><th>列表</th><th>详情</th></tr></thead>
+      <tbody>
+        <tr><td>▲ / ▼</td><td>移动选中</td><td>逐行滚动</td></tr>
+        <tr><td>OK 短按</td><td>打开详情</td><td>翻一页</td></tr>
+        <tr><td>OK 长按</td><td>立即刷新</td><td>返回列表</td></tr>
+      </tbody>
+    </table>
+
+    <div class="actions">
+      <button id="btnRefresh" class="act act-primary">重新拉取</button>
+      <button id="btnOffline" class="act" aria-pressed="false">模拟断网</button>
+      <button id="btnEmpty" class="act">空数据</button>
+      <button id="btnReplay" class="act">重放开机</button>
+    </div>
+
+    <p class="hint">
+      键盘 ↑ ↓ Enter 同样可以操作；按住 Enter 0.6 秒等于长按。
+      固件源码在 <code>main/</code>，feed 契约见 <code>docs/feed-format.md</code>。
+    </p>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

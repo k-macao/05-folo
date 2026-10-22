@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "generated_at": "2026-10-23T09:20:00+08:00",
+  "source": "005 章鱼AI",
+  "window_minutes": 180,
+  "items": [
+    {
+      "id": "8f3a1c02",
+      "title": "国常会：部署加快培育人形机器人产业",
+      "one_line": "政策从“鼓励”转向“部署”，减速器、丝杠等上游环节确定性最高",
+      "source_name": "东方财富",
+      "time": "2026-10-23T09:12:00+08:00",
+      "time_grade": "EXACT",
+      "tags": ["政策", "机器人"],
+      "bias": "bull",
+      "security": { "code": "300124", "name": "汇川技术", "price": 68.42, "change_pct": 3.21 },
+      "url": "https://example.com/005/robot-policy"
+    },
+    {
+      "id": "b71d5e94",
+      "title": "北方稀土上调10月稀土精矿交易价格，环比涨6.8%",
+      "one_line": "供给端继续收紧，磁材报价跟涨，短线情绪已进入亢奋区",
+      "source_name": "证券之星",
+      "time": "2026-10-23T08:55:00+08:00",
+      "time_grade": "EXACT",
+      "tags": ["有色", "稀土"],
+      "bias": "bull",
+      "security": { "code": "600111", "name": "北方稀土", "price": 24.31, "change_pct": 5.62 },
+      "url": "https://example.com/005/rare-earth"
+    },
+    {
+      "id": "2c9e0a41",
+      "title": "锂电龙头三季度业绩预告：净利同比预增40%—60%",
+      "one_line": "价格战下仍能增利，靠的是储能出货与海外客户结构",
+      "source_name": "巨潮资讯",
+      "time": "2026-10-23T08:10:00+08:00",
+      "time_grade": "DATE",
+      "tags": ["锂电", "业绩"],
+      "bias": "bull",
+      "security": { "code": "300750", "name": "宁德时代", "price": 231.5, "change_pct": 2.31 },
+      "url": "https://example.com/005/battery-q3"
+    },
+    {
+      "id": "5a0c77bd",
+      "title": "北向资金净流出32.6亿元，白酒板块遭连续减持",
+      "one_line": "外资连续三日撤出消费，注意指数权重股的拖累",
+      "source_name": "iFinD",
+      "time": "2026-10-23T07:40:00+08:00",
+      "time_grade": "DERIVED",
+      "tags": ["资金面", "白酒"],
+      "bias": "bear",
+      "security": { "code": "600519", "name": "贵州茅台", "price": 1420.0, "change_pct": -1.24 },
+      "url": "https://example.com/005/northbound"
+    },
+    {
+      "id": "e4b2f610",
+      "title": "证监会就程序化交易新规答记者问：限制高频撤单",
+      "one_line": "高频策略成本抬升，中小私募受影响大于头部量化",
+      "source_name": "东方财富",
+      "time": "2026-10-23T07:20:00+08:00",
+      "time_grade": "EXACT",
+      "tags": ["监管", "量化"],
+      "bias": "neutral",
+      "url": "https://example.com/005/csrc-hft"
+    },
+    {
+      "id": "9d3c08aa",
+      "title": "光伏组件价格本周环比下跌2.1%，库存回升",
+      "one_line": "排产下调叠加库存，组件环节利润继续被压缩",
+      "source_name": "慧博投研",
+      "time": "2026-10-23T06:50:00+08:00",
+      "time_grade": "DATE",
+      "tags": ["光伏", "价格"],
+      "bias": "bear",
+      "security": { "code": "601012", "name": "隆基绿能", "price": 18.72, "change_pct": -2.05 },
+      "url": "https://example.com/005/pv-price"
+    },
+    {
+      "id": "3f6e21c7",
+      "title": "半导体设备厂中标12亿元大单，国产替代加速",
+      "one_line": "订单能见度延伸到明年，设备板块进入业绩验证期",
+      "source_name": "慧博投研",
+      "time": "2026-10-23T06:30:00+08:00",
+      "time_grade": "EXACT",
+      "tags": ["半导体", "订单"],
+      "bias": "bull",
+      "security": { "code": "002371", "name": "北方华创", "price": 412.6, "change_pct": 4.1 },
+      "url": "https://example.com/005/semi-order"
+    },
+    {
+      "id": "c0a91d55",
+      "title": "统计局：9月CPI同比0.2%，PPI同比-2.1%",
+      "one_line": "需求侧仍偏弱，顺周期定价缺少基本面支撑",
+      "source_name": "国家统计局",
+      "time": "2026-10-23T06:25:00+08:00",
+      "time_grade": "EXACT",
+      "tags": ["宏观", "数据"],
+      "bias": "neutral",
+      "url": "https://example.com/005/cpi-ppi"
+    }
+  ]
+}
