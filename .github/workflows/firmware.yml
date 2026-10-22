@@ -71,8 +71,14 @@ jobs:
           tail -n 120 build-log.txt 2>/dev/null || echo "(no build-log.txt)"
           body_file=$(mktemp)
           {
+            echo '### 编译错误（error / FAILED / undefined reference，带 2 行上下文）'
             echo '```'
-            tail -n 120 build-log.txt 2>/dev/null || echo "(no build-log.txt)"
+            grep -nE -B2 -A2 "error:|FAILED:|undefined reference|CMake Error|ninja: build stopped" \
+                 build-log.txt 2>/dev/null | head -n 260 || true
+            echo '```'
+            echo '### 尾部'
+            echo '```'
+            tail -n 40 build-log.txt 2>/dev/null || echo "(no build-log.txt)"
             echo '```'
           } > "$body_file"
           gh api -X POST "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
