@@ -12,6 +12,15 @@ on:
   schedule:
     - cron: "10 23,3,7,11 * * *"
   workflow_dispatch:
+  # 改了抓取脚本或本文件时立刻跑一次，顺便当作冒烟测试；
+  # 推送 preview/feed.json 不会触发（不在 paths 里），所以不会自我循环。
+  push:
+    paths:
+      - "tools/fetch_daily.py"
+      - "tools/make_feed.py"
+      - "tests/test_daily_news.py"
+      - "tests/fixtures/**"
+      - ".github/workflows/daily-feed.yml"
 
 permissions:
   contents: write
