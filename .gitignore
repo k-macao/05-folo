@@ -16,3 +16,5 @@ tests/build/
 # Python 工具的运行产物（tools/*.py 被 check.sh 导入时会生成）
 __pycache__/
 *.pyc
+node_modules/
+package-lock.json

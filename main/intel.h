@@ -14,7 +14,6 @@
 #define INTEL_LINE_BYTES    144   // 24 个汉字，够 38 半格的一行
 #define INTEL_SOURCE_BYTES   32
 #define INTEL_TIME_BYTES     28
-#define INTEL_URL_BYTES     192
 #define INTEL_NAME_BYTES     32
 #define INTEL_CODE_BYTES     12
 #define INTEL_TAG_BYTES      24
@@ -55,7 +54,6 @@ typedef struct {
     uint8_t tag_count;
     intel_bias_t bias;
     intel_quote_t quote;
-    char url[INTEL_URL_BYTES];
 } intel_item_t;
 
 typedef struct {
@@ -71,9 +69,9 @@ typedef struct {
 
 // 详情页一行。style 决定颜色，由 ui_crt.c 翻译成实际色值。
 typedef enum {
-    INTEL_LINE_HEAD = 0,   // 反白小标题，如 "AI 一句话"
+    INTEL_LINE_HEAD = 0,   // 反白小标题，如 "摘要"
     INTEL_LINE_PLAIN,
-    INTEL_LINE_DIM,        // 次要信息：来源、URL
+    INTEL_LINE_DIM,        // 次要信息：来源、无行情提示
     INTEL_LINE_ACCENT,     // 重点：一句话结论
     INTEL_LINE_BULL,       // 涨
     INTEL_LINE_BEAR,       // 跌

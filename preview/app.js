@@ -220,7 +220,6 @@
           price: hasQuote ? Number(sec.price) : 0,
           changePct: hasQuote ? Number(sec.change_pct) : 0,
         },
-        url: typeof it.url === 'string' ? it.url : '',
       });
     }
 
@@ -230,7 +229,7 @@
       source: normalize(raw.source) || '005',
       generatedAt: raw.generated_at || '',
       generatedEpoch,
-      windowMinutes: Number(raw.window_minutes) || 180,
+      windowMinutes: Number(raw.window_minutes) || 1440,
       items,
       dropped,
     };
@@ -274,7 +273,7 @@
       wrap(text, DETAIL_CELLS, maxLines).forEach((l) => push(l, style));
 
     if (item.oneLine) {
-      push('AI 一句话', 'head');
+      push('摘要', 'head');
       wrapped(item.oneLine, 'accent', 5);
       rule();
     }
@@ -290,13 +289,7 @@
     push(`${mmdd(item.epoch)} ${hhmm(item.epoch)} ${item.grade} · ${ageText(Math.max(0, Math.floor((nowMs - item.epoch) / 60000)))}`, 'plain');
     push(`来源 ${item.source}`, 'plain');
     if (item.tags.length) push(`标签 ${item.tags.join(' / ')}`, 'plain');
-    push(`倾向 ${biasLabel(item.bias)}`, item.bias === 'none' ? 'dim' : 'plain');
-
-    if (item.url) {
-      rule();
-      push('原文', 'head');
-      wrapped(item.url, 'dim', 3);
-    }
+    if (item.bias !== 'none') push(`倾向 ${biasLabel(item.bias)}`, 'plain');
     return out;
   }
 
@@ -486,10 +479,12 @@
     const feed = state.feed;
     document.getElementById('factFeed').textContent =
       state.busy ? '拉取中…' : `feed.json · ${state.bytes} B`;
-    document.getElementById('factSync').textContent =
-      feed ? `${hhmm(clockNow())}（基准 ${hhmm(feed.generatedEpoch)}）` : '—';
+    const fresh = feed && feed.generatedEpoch
+      ? `${mmdd(feed.generatedEpoch)} ${hhmm(feed.generatedEpoch)} · ${ageText(Math.max(0, Math.floor((Date.now() - feed.generatedEpoch) / 60000)))}`
+      : '—';
+    document.getElementById('factSync').textContent = fresh;
     document.getElementById('factCount').textContent =
-      feed ? `${feed.items.length} 条 / 窗口 ${feed.windowMinutes} 分钟` : '—';
+      feed ? `${feed.items.length} 条 / 窗口 ${Math.round(feed.windowMinutes / 60)} 小时` : '—';
     document.getElementById('factDropped').textContent =
       feed ? `${feed.dropped} 条` : '—';
   }

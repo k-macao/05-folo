@@ -6,8 +6,9 @@ docs/feed-format.md），剩下的收窄工作由本脚本完成：
 
   * 丢弃没有标题 / 没有时间 / 时间不可信（MISSING）/ 时间无法解析的条目
     —— 与固件、005 相同的"宁可丢弃，不可臆造"。
-  * 丢弃超出窗口（默认 180 分钟）或比 generated_at 晚 10 分钟以上的条目。
-  * 按时间倒序，最多 12 条；标题/一句话/URL 按屏幕格数截断。
+  * 丢弃超出窗口（默认 1440 分钟 = 一天）或比 generated_at 晚 10 分钟以上的条目。
+  * 按时间倒序，最多 12 条；标题/一句话按屏幕格数截断。
+  * 不保留原始链接：设备没有浏览器，详情页也不再展示 URL。
   * 缺 id 时用 title+time 的 sha1 前 8 位补齐，方便设备端去重。
   * 输出紧凑 JSON（约 4 KB / 12 条），并打印体积与丢弃原因。
 
@@ -31,7 +32,7 @@ GRADES = {"EXACT", "DATE", "DERIVED"}
 TZ8 = timezone(timedelta(hours=8))
 
 # 屏幕格数上限：列表两行 38 格、详情 5 行 36 格 / URL 3 行 36 格。
-LIMITS = {"title": 72, "one_line": 180, "source_name": 24, "url": 108, "tag": 18}
+LIMITS = {"title": 72, "one_line": 180, "source_name": 24, "tag": 18}
 
 
 def cells(text: str) -> int:
@@ -130,10 +131,6 @@ def normalise_item(raw: dict, dropped: list[tuple[str, str]]) -> dict | None:
         elif code or name:
             item["security"] = {"code": code, "name": name}
 
-    url = raw.get("url")
-    if isinstance(url, str) and url.startswith(("http://", "https://")):
-        item["url"] = fit_cells(url, LIMITS["url"])
-
     return item
 
 
@@ -184,7 +181,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="src", required=True)
     ap.add_argument("--out", dest="dst")
-    ap.add_argument("--window", type=int, default=180)
+    ap.add_argument("--window", type=int, default=1440,
+                    help="保留最近多少分钟的条目（默认 1440 = 一天；实盘快讯可传 180）")
     ap.add_argument("--check", action="store_true", help="只校验，不写文件")
     args = ap.parse_args()
 

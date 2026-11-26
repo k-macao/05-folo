@@ -39,16 +39,18 @@
   </section>
 
   <section class="info-col">
-    <p class="kicker">005 事件雷达 · 硬件显示端</p>
+    <p class="kicker">005 每日新闻 · 硬件显示端</p>
     <h1>把 <em>SIGNAL.LOG</em> 装进口袋</h1>
     <p class="lede">
-      浏览器里这块屏和固件用的是同一套排版：6 px 半格 / 12 px 全角、每行 38 格、
-      磷光绿 + 反白选中。左侧是 1:1 逻辑像素预览，下面是这台设备现在拿到的数据。
+      新闻每天自动更新：工作流抓取最近 24 小时的财经要闻、重新生成 feed.json，
+      设备每 10 分钟拉一次就换到当天内容。浏览器里这块屏和固件用的是同一套排版：
+      6 px 半格 / 12 px 全角、每行 38 格、磷光绿 + 反白选中。
+      详情页只留标题摘要与来源，<strong>不放原文链接</strong>。
     </p>
 
     <dl class="facts" id="facts">
       <div><dt>数据</dt><dd id="factFeed">feed.json</dd></div>
-      <div><dt>同步</dt><dd id="factSync">—</dd></div>
+      <div><dt>更新</dt><dd id="factSync">—</dd></div>
       <div><dt>情报</dt><dd id="factCount">—</dd></div>
       <div><dt>丢弃</dt><dd id="factDropped">—</dd></div>
     </dl>
@@ -71,7 +73,8 @@
 
     <p class="hint">
       键盘 ↑ ↓ Enter 同样可以操作；按住 Enter 0.6 秒等于长按。
-      固件源码在 <code>main/</code>，feed 契约见 <code>docs/feed-format.md</code>。
+      固件源码在 <code>main/</code>，feed 契约见 <code>docs/feed-format.md</code>，
+      每日更新流程见 <code>docs/daily-news.md</code>。
     </p>
   </section>
 </main>
