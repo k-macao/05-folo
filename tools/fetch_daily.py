@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import gzip
 import hashlib
 import html
@@ -215,11 +216,22 @@ def _title_key(title: str) -> str:
 
 
 def _near_duplicate(a: str, b: str) -> bool:
-    """同一条新闻经常被两个源以「多/少一个前缀」的标题各发一次。"""
+    """同一条新闻经常被两个源改几个字后各发一次。
+
+    先看包含关系（多/少一个前缀后缀），再看编辑相似度（「对科威特的无人机」vs
+    「对科威特无人机」这种只差虚词的情况）。长度差太大时直接不比较，避免把
+    「特朗普质疑 GDP」和「特朗普谈军火」这种同主题但不同事件的标题并掉。
+    """
     if a == b:
         return True
     short, long = (a, b) if len(a) <= len(b) else (b, a)
-    return len(short) >= 8 and short in long and len(short) / len(long) >= 0.8
+    if len(short) < 8:
+        return False
+    if short in long and len(short) / len(long) >= 0.8:
+        return True
+    if len(long) - len(short) > 6:
+        return False
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.88
 
 
 def build_items(entries: list[dict], now: datetime, window_min: int) -> list[dict]:

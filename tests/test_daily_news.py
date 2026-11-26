@@ -54,6 +54,14 @@ def main():
     titles = [i["title"] for i in items]
     check(sum("301关税" in t for t in titles) == 1, "同一标题跨源出现只保留一条")
     check(not any(t.endswith("301关税措施") for t in titles), "只差后缀的近似标题也被判重")
+    check(fetch_daily._near_duplicate(
+        fetch_daily._title_key("莱茵金属两名意大利员工在伊朗对科威特的无人机袭击事件中丧生"),
+        fetch_daily._title_key("德国莱茵金属两名意大利员工在伊朗对科威特无人机袭击事件中丧生")),
+        "只差一两个虚词 / 前缀的同一新闻判重")
+    check(not fetch_daily._near_duplicate(
+        fetch_daily._title_key("特朗普质疑三季度GDP数据大幅修正 要求立即展开调查"),
+        fetch_daily._title_key("特朗普：美国正在补充军火储备 全球盟友和伙伴将受益")),
+        "同主题但不同事件的标题不会被误判为重复")
 
     by_title = {i["title"]: i for i in items}
     tariff = by_title["商务部：坚决反对美对中国等经济体加征301关税"]
