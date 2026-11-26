@@ -59,7 +59,7 @@ BSP 直接取自 [FoloToy/ai-passport](https://github.com/FoloToy/ai-passport) �
 
 ```
 | 3/8 巨潮资讯                                  <- 反白标题栏
-   AI 一句话                                    <- 反白小标题
+   摘要                                        <- 反白小标题
    政策定调，上游减速器与丝杠确定性提升
    ─────────────────────────────────────
    300750 宁德时代
@@ -68,10 +68,7 @@ BSP 直接取自 [FoloToy/ai-passport](https://github.com/FoloToy/ai-passport) �
    10-23 08:42 EXACT · 8分前
    来源 巨潮资讯
    标签 锂电 / 业绩
-   倾向 偏多
-   ─────────────────────────────────────
-   原文
-   https://…
+   倾向 偏多                                   <- 只有 005 给出判断时才显示
 ```
 
 **状态页**：开机 `SIGNAL.LOG`、拉取失败 `NO SIGNAL` + 原因 + `OK 重试`；
@@ -128,8 +125,27 @@ idf.py -p /dev/ttyACM0 flash monitor
 idf.py merge-bin -o 005-signal-log-full.bin   # 产物落在 build/ 下
 ```
 
-刷新间隔默认 10 分钟（`CONFIG_APP_REFRESH_MINUTES`），与 005 的 180 分钟窗口配合，
-列表始终只显示三小时内的情报。
+刷新间隔默认 10 分钟（`CONFIG_APP_REFRESH_MINUTES`）。feed 的窗口默认是一天
+（`window_minutes = 1440`），所以列表始终是「今天」的新闻；每天 4 轮自动更新，
+抓取失败时保留上一份 feed，屏幕顶栏标 `STALE` 而不是变空。
+
+## 每天更新（默认数据源）
+
+```
+.github/workflows/daily-feed.yml   07:10 / 11:10 / 15:10 / 19:10（北京时间）
+        │
+        ├─ tools/fetch_daily.py    抓东方财富「财经要闻」+ 新浪财经滚动，去重、分类、留 12 条
+        ├─ tools/make_feed.py      再校验一遍契约（窗口 24h、无链接、体积 < 24 KiB）
+        └─ git commit preview/feed.json
+```
+
+- **原链接不要**：`fetch_daily.py` 根本不写入 `url`，固件也不再解析/展示它；
+  即使上游 feed 里带了 `url`，设备也会直接忽略（详情页没有「原文」这一栏）。
+- **失败不覆盖**：所有源都挂掉、或可用条目少于 3 条时，脚本非零退出，工作流不提交，
+  设备继续显示上一份 feed。
+- 想换源 / 加源：改 `tools/fetch_daily.py` 里的 `SOURCES`；标签词表在同文件的 `TOPICS`。
+
+细节：[`docs/daily-news.md`](docs/daily-news.md)。
 
 ## 005 侧：把推送变成 feed.json
 
@@ -139,11 +155,12 @@ idf.py merge-bin -o 005-signal-log-full.bin   # 产物落在 build/ 下
 
    ```bash
    python3 tools/make_feed.py --in items.json --out preview/feed.json
-   python3 tools/make_feed.py --in items.json --check   # 只校验，CI 用
+   python3 tools/make_feed.py --in items.json --check --window 180   # 只校验，CI 用
    ```
 
    `make_feed.py` 会丢掉没有标题、没有时间、`time_grade` 不可信或时间无法解析的条目，
-   丢掉超出窗口 / 来自未来的条目，按时间倒序取前 12 条，并按屏幕格数截断长文本。
+   丢掉超出窗口 / 来自未来的条目，按时间倒序取前 12 条，并按屏幕格数截断长文本；
+   `url` 字段会被忽略，不会进入 feed。
 3. 托管：GitHub Pages、对象存储、任意静态站点都行，把 URL 填进 `CONFIG_APP_FEED_URL`，
    再给一个 `CONFIG_APP_FEED_URL_FALLBACK`（可选，主地址失败时自动重试；CDN 有缓存，
    镜像只适合当备用）。
@@ -164,10 +181,14 @@ components/bsp/     FoloToy 官方 BSP（MIT，原样引入）
 preview/            浏览器 1:1 预览（和固件同一套排版规则）
 tools/
   gen_font.py       LVGL 9 位图字体生成器（Pillow 栅格化 + 自校验）
-  make_feed.py      005 条目 → feed.json
+  fetch_daily.py    每日新闻抓取（东方财富 + 新浪财经，不写链接）
+  make_feed.py      条目 → feed.json（收窄 / 排序 / 体积校验）
   check.sh          主机侧全量校验
-tests/              主机测试（gcc，不需要 ESP-IDF）
-docs/               feed 契约、字体资产说明
+tests/              主机测试（gcc + 离线解析夹具，不需要 ESP-IDF）
+docs/               feed 契约、每日更新、字体资产说明
+.github/workflows/
+  firmware.yml      编译 + 合并镜像 + 发布
+  daily-feed.yml    每天 4 轮新闻刷新（schedule）
 ```
 
 ## 验证状态
@@ -176,7 +197,7 @@ docs/               feed 契约、字体资产说明
 | --- | --- | --- |
 | Build | **PASS** | GitHub Actions + `espressif/idf:v5.5.3` 编译通过；合并镜像 1,903,008 B，镜像结构校验（引导头/ESP32-C3/分区表 MD5/app 描述符）全绿 |
 | 语法检查 | **PASS** | `main/*.c` 与字体文件用最小桩头文件做过 `gcc -fsyntax-only -Wall -Wextra`；只验证 C 语法与类型，不代表真实 LVGL/IDF API 能链接通过 |
-| Host tests | **PASS** | `./tools/check.sh`：逻辑/换行/时间/解析共 40+ 断言 + 字体码点覆盖 |
+| Host tests | **PASS** | `./tools/check.sh`：逻辑/换行/时间/解析共 40+ 断言 + 每日新闻离线夹具 + 字体码点覆盖 |
 | Device tests | **NOT RUN** | 没有连接设备；未执行任何真机验证 |
 | Unverified | 屏幕上的中文渲染、Wi-Fi/TLS 实际连通、按键手感、电量读数、刷新时的闪烁 |
 
@@ -189,6 +210,9 @@ Wi-Fi 失败时是否出现 `NO SIGNAL` 而不是黑屏 → 详情页长文本�
   4000 B，装不下 8 KB 的解析结果；要做需要单独的数据分区）。
 - **配网是编译期的**：Wi-Fi 凭证写在 Kconfig 里，没有配网界面，也没有 BLE 配网。
 - **每轮最多 12 条**：超出的在 `make_feed.py` 里裁掉，不占用设备内存。
+- **新闻不是 AI 分析**：每日新闻的「摘要」是源站导语（去掉重复标题），标签是关键词归类，
+  没有 005 的倾向判断和个股行情；想要 AI 结论就让 005 生成 feed（`--window 180`）。
+- **不展示原链接**：设备上没有浏览器，详情页刻意不给 URL；来源只保留媒体名。
 - **字体是固定 12 px 位图**：缺字会显示方块；`intel_normalize()` 已把中文字体常见缺失的
   `— ° ′ ✓` 映射成 ASCII。要扩字集就改 `tools/gen_font.py` 重新生成。
 - **没有 deep sleep / 自动息屏**：屏幕常亮，关机靠拔电。

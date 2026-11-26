@@ -82,6 +82,9 @@ PY
 echo "== feed tool =="
 python3 tools/make_feed.py --in preview/feed.json --check
 
+echo "== daily news tool (offline) =="
+python3 tests/test_daily_news.py
+
 echo "== font inventory & LVGL cmap 1:1 lookup =="
 python3 - <<'PY'
 import pathlib, re, sys

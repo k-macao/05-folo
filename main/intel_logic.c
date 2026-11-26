@@ -417,7 +417,7 @@ int intel_detail_build(const intel_item_t *item, int64_t now_epoch,
     char buf[INTEL_LINE_BYTES];
 
     if (item->one_line[0]) {
-        push(&b, INTEL_LINE_HEAD, "AI 一句话");
+        push(&b, INTEL_LINE_HEAD, "摘要");
         push_wrapped(&b, INTEL_LINE_ACCENT, item->one_line, 5);
         push_rule(&b);
     }
@@ -467,13 +467,9 @@ int intel_detail_build(const intel_item_t *item, int64_t now_epoch,
         push(&b, INTEL_LINE_PLAIN, line);
     }
 
-    snprintf(buf, sizeof buf, "倾向 %s", intel_bias_label(item->bias));
-    push(&b, item->bias == INTEL_BIAS_NONE ? INTEL_LINE_DIM : INTEL_LINE_PLAIN, buf);
-
-    if (item->url[0]) {
-        push_rule(&b);
-        push(&b, INTEL_LINE_HEAD, "原文");
-        push_wrapped(&b, INTEL_LINE_DIM, item->url, 3);
+    if (item->bias != INTEL_BIAS_NONE) {
+        snprintf(buf, sizeof buf, "倾向 %s", intel_bias_label(item->bias));
+        push(&b, INTEL_LINE_PLAIN, buf);
     }
 
     return b.n;

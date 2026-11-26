@@ -39,6 +39,7 @@ menu "005 Signal Log"
         range 1 240
         default 10
         help
-            与 005 的 180 分钟窗口配合：10 分钟拉一次，列表始终是三小时内的情报。
+            默认 10 分钟拉一次。feed 每天由 GitHub Actions 刷新 4 轮
+            （window_minutes=1440），所以列表始终是当天新闻；抓取失败时保留旧数据。
 
 endmenu

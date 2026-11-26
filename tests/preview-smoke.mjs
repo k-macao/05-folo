@@ -12,7 +12,8 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 const dir = path.join(root, 'preview');
 const html = fs.readFileSync(path.join(dir, 'index.html'), 'utf8');
 const app = fs.readFileSync(path.join(dir, 'app.js'), 'utf8');
-const feed = fs.readFileSync(path.join(dir, 'feed.json'), 'utf8');
+// 固定夹具：每日新闻会换内容，冒烟测试不能依赖当天的 feed.json。
+const feed = fs.readFileSync(path.join(root, 'tests/fixtures/preview-feed.json'), 'utf8');
 
 const errors = [];
 const vc = new VirtualConsole();
@@ -56,9 +57,10 @@ check(/2\/8/.test(text()), 'list: ArrowDown moves selection to 2/8');
 key('Enter');
 key('Enter', 'keyup');
 await wait(20);
-check(text().includes('AI 一句话'), 'detail: Enter opens detail');
+check(text().includes('摘要'), 'detail: Enter opens detail');
 check(text().includes('北方稀土'), 'detail: quote line present');
 check(screen.querySelectorAll('.chip').length >= 1, 'detail: reverse-video chips drawn');
+check(!text().includes('http'), 'detail: no original link on screen');
 
 key('Enter');
 await wait(700);

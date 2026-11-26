@@ -8,7 +8,7 @@
   "schema": 1,                                  // 必须为 1；其它值设备仍会尝试解析，但会记日志
   "generated_at": "2026-10-23T09:20:00+08:00",  // 本轮生成时间，设备用它当"现在"
   "source": "005 章鱼AI",                        // 顶栏 / 日志用
-  "window_minutes": 180,                        // 只做展示，不参与过滤
+  "window_minutes": 1440,                       // 只做展示，不参与过滤（1440 = 一天）
   "items": [                                    // 最多 12 条，按时间倒序
     {
       "id": "8f3a1c02",                         // 去重指纹，缺省由 make_feed 用 sha1 补
@@ -25,7 +25,8 @@
         "price": 68.42,
         "change_pct": 3.21
       },
-      "url": "https://example.com/005/robot-policy"   // ≤108 格，详情页"原文"展示
+      // 不要再放 url：设备没有浏览器，详情页刻意不展示原链接；
+      // 即便传了，固件也会忽略（见下）。
     }
   ]
 }
@@ -41,6 +42,7 @@
 | 没有 `time`，或不是合法 ISO 8601 | 丢弃 |
 | `time_grade` 缺失 / 不是 `EXACT` / `DATE` / `DERIVED`（即 `MISSING`） | 丢弃 |
 | `time` 比 `generated_at` 晚 10 分钟以上（源站时钟漂移容忍度） | 丢弃 |
+| 条目带 `url`（或任何链接字段） | **忽略**：不解析、不存储、不展示 |
 | 条目数超过 12 | 丢弃多余项 |
 | 全部条目都被丢弃 | 整轮失败，屏幕保持上一轮数据并标 `STALE`；无旧数据则 `NO SIGNAL` |
 | 响应 > 24576 字节 | 整轮失败（防止把 RAM 拉爆） |
@@ -54,17 +56,30 @@
 | `time_grade` + `time` | 每行 meta 行（`[EXACT] 09:12`，颜色按等级） | `10-23 08:42 EXACT · 8分前` |
 | `source_name` | meta 行右侧 | 标题栏右侧 + `来源` 行 |
 | `title` | 2 行 × 38 格 | 不显示（详情页聚焦结论） |
-| `one_line` | 不显示 | `AI 一句话`（反白标题 + 白字正文，最多 5 行） |
+| `one_line` | 不显示 | `摘要`（反白标题 + 白字正文，最多 5 行） |
 | `security` | 右上角涨跌幅（涨红跌青） | 代码/名称一行，价格 + 涨跌幅一行 |
 | `tags` | 不显示 | `标签 锂电 / 业绩` |
-| `bias` | 不显示 | `倾向 偏多` |
-| `url` | 不显示 | `原文`，最多 3 行 |
+| `bias` | 不显示 | `倾向 偏多`；缺省 / `none` 时整行不显示 |
+| `url` | 不显示 | **不展示**（无浏览器，也没有「原文」栏） |
 
 ## 时间分级为什么必须传
 
 设备不会去猜发布时间：`time_grade` 是 005 对这条内容时间可信度的判断。
 传错比不传更糟——`EXACT` 会被当成"精确到秒"，`DATE` 显示琥珀色，`DERIVED` 显示橙色并带
 "推算"的语义，`MISSING` 直接丢弃。**不要用抓取时刻冒充发布时间。**
+
+## 每天更新
+
+仓库默认的 feed **不是**手写的示例，而是由 `.github/workflows/daily-feed.yml` 每天刷新 4 轮：
+
+```bash
+python3 tools/fetch_daily.py --out preview/feed.json --window 1440
+python3 tools/make_feed.py --in preview/feed.json --check --window 1440
+```
+
+来源是东方财富「财经要闻」与新浪财经滚动公开接口，只保留标题 / 摘要 / 来源 / 时间 / 标签，
+不写链接。抓取失败或可用条目少于 3 条时不覆盖旧 feed。细节见
+[`daily-news.md`](daily-news.md)。
 
 ## 托管
 
@@ -97,12 +112,13 @@ items = [{
     "bias": it.bias,                         # 可缺省
     "security": {"code": it.code, "name": it.name,
                  "price": it.price, "change_pct": it.change_pct},
-    "url": it.url,
+    # 不要 url：设备不展示原链接
 } for it in pushed_items]
 json.dump({"generated_at": now.isoformat(), "source": "005 章鱼AI",
-           "window_minutes": 180, "items": items}, open("items.json", "w"),
+           "window_minutes": 1440, "items": items}, open("items.json", "w"),
           ensure_ascii=False)
 ```
 
 导出后立刻跑一次 `make_feed.py --check`，被丢弃的条目会逐条打印原因——这是最省事的
-"字段映射是否正确"的验证方式。
+"字段映射是否正确"的验证方式。窗口默认按一天（1440 分钟）；005 的盘中快讯想要三小时窗口，
+显式传 `--window 180`。

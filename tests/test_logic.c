@@ -139,22 +139,23 @@ static void test_detail(void)
     snprintf(item.tags[0], INTEL_TAG_BYTES, "政策");
     snprintf(item.tags[1], INTEL_TAG_BYTES, "机器人");
     item.tag_count = 2;
-    snprintf(item.url, sizeof item.url, "https://example.com/a");
 
     intel_line_t lines[INTEL_DETAIL_MAX_LINES];
     const int n = intel_detail_build(&item, 1792716120LL + 3600, lines, INTEL_DETAIL_MAX_LINES);
     CHECK(n > 6);
     CHECK(n <= INTEL_DETAIL_MAX_LINES);
 
-    bool has_head = false, has_pct = false, has_source = false;
+    bool has_head = false, has_pct = false, has_source = false, has_link = false;
     for (int i = 0; i < n; i++) {
-        if (lines[i].style == INTEL_LINE_HEAD && strcmp(lines[i].text, "AI 一句话") == 0) has_head = true;
+        if (lines[i].style == INTEL_LINE_HEAD && strcmp(lines[i].text, "摘要") == 0) has_head = true;
+        if (strstr(lines[i].text, "http") || strstr(lines[i].text, "原文")) has_link = true;
         if (strstr(lines[i].text, "+2.31%")) has_pct = true;
         if (strstr(lines[i].text, "东方财富")) has_source = true;
     }
     CHECK(has_head);
     CHECK(has_pct);
     CHECK(has_source);
+    CHECK(!has_link);   // 详情页不再展示原文链接
 
     for (int i = 0; i < n; i++) {
         if (lines[i].style == INTEL_LINE_RULE) continue;

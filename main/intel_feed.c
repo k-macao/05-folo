@@ -126,7 +126,7 @@ static bool parse_item(const cJSON *item, const intel_feed_t *feed, intel_item_t
     copy_str(out->id, sizeof out->id, item, "id", true);
     copy_str(out->one_line, sizeof out->one_line, item, "one_line", true);
     copy_str(out->source, sizeof out->source, item, "source_name", true);
-    copy_str(out->url, sizeof out->url, item, "url", false);
+    // 上游即使带了 url 也直接忽略：设备不展示原链接。
 
     char time_raw[INTEL_TIME_BYTES] = {0};
     copy_str(time_raw, sizeof time_raw, item, "time", false);
@@ -250,8 +250,8 @@ static bool parse_feed_impl(const char *json, size_t len, intel_feed_t *out,
     if (!out->generated_hhmm[0]) snprintf(out->generated_hhmm, sizeof out->generated_hhmm, "--:--");
 
     const cJSON *window = cJSON_GetObjectItemCaseSensitive(root, "window_minutes");
-    out->window_minutes = cJSON_IsNumber(window) ? (uint16_t)window->valueint : 180;
-    if (out->window_minutes == 0) out->window_minutes = 180;
+    out->window_minutes = cJSON_IsNumber(window) ? (uint16_t)window->valueint : 1440;
+    if (out->window_minutes == 0) out->window_minutes = 1440;
 
     int drop = 0;
     const cJSON *it = NULL;

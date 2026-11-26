@@ -1,0 +1,85 @@
+name: daily-feed
+
+# 每天自动把「当天新闻」写进 preview/feed.json。
+#
+# 设备的默认 feed 地址就是 main 分支上的 preview/feed.json，固件每 10 分钟拉一次，
+# 所以这个工作流一提交，胸前那块屏最迟 10 分钟后就换成新内容——不需要重烧固件。
+#
+# 时间（UTC，括号里是北京时间）：
+#   23:10 (07:10) / 03:10 (11:10) / 07:10 (15:10) / 11:10 (19:10)
+# 也就是每天 4 轮；抓取失败时**不覆盖**旧 feed（脚本直接非零退出），页面继续用上一份。
+on:
+  schedule:
+    - cron: "10 23,3,7,11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-feed
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Host checks (feed contract / daily fetcher)
+        run: |
+          python3 tests/test_daily_news.py
+          python3 tools/make_feed.py --in preview/feed.json --check
+
+      - name: Fetch today's headlines (no original links)
+        run: python3 tools/fetch_daily.py --out preview/feed.json --window 1440
+
+      - name: Validate the generated feed
+        run: |
+          python3 tools/make_feed.py --in preview/feed.json --check --window 1440
+          python3 - <<'PY'
+          import json, pathlib
+          feed = json.loads(pathlib.Path("preview/feed.json").read_text(encoding="utf-8"))
+          assert feed["items"], "empty feed"
+          assert not any("url" in it for it in feed["items"]), "feed must not carry links"
+          print(f"{len(feed['items'])} items, generated_at={feed['generated_at']}")
+          print("first:", feed["items"][0]["title"])
+          PY
+
+      - name: Commit if changed
+        run: |
+          git config user.name "005 feed bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- preview/feed.json; then
+            echo "feed unchanged — nothing to commit"
+            exit 0
+          fi
+          git add preview/feed.json
+          git commit -m "chore(feed): 每日新闻 $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
+          git push origin "HEAD:${{ github.ref_name }}"
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "## 005 每日新闻"
+            if [ -f preview/feed.json ]; then
+              python3 - <<'PY'
+              import json, pathlib
+              feed = json.loads(pathlib.Path("preview/feed.json").read_text(encoding="utf-8"))
+              print(f"- 生成时间：`{feed['generated_at']}`")
+              print(f"- 条数：{len(feed['items'])} / 窗口 {feed['window_minutes']} 分钟")
+              print(f"- 链接：无（feed 里不携带 url）")
+              print()
+              for it in feed["items"][:5]:
+                  print(f"  - {it['time'][11:16]} [{it['source_name']}] {it['title']}")
+              PY
+            else
+              echo "没有 feed 文件"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
