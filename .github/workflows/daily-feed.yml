@@ -74,21 +74,4 @@ jobs:
 
       - name: Summarize
         if: always()
-        run: |
-          {
-            echo "## 005 每日新闻"
-            if [ -f preview/feed.json ]; then
-              python3 - <<'PY'
-              import json, pathlib
-              feed = json.loads(pathlib.Path("preview/feed.json").read_text(encoding="utf-8"))
-              print(f"- 生成时间：`{feed['generated_at']}`")
-              print(f"- 条数：{len(feed['items'])} / 窗口 {feed['window_minutes']} 分钟")
-              print(f"- 链接：无（feed 里不携带 url）")
-              print()
-              for it in feed["items"][:5]:
-                  print(f"  - {it['time'][11:16]} [{it['source_name']}] {it['title']}")
-              PY
-            else
-              echo "没有 feed 文件"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/feed_summary.py preview/feed.json >> "$GITHUB_STEP_SUMMARY"

@@ -53,6 +53,7 @@ def main():
 
     titles = [i["title"] for i in items]
     check(sum("301关税" in t for t in titles) == 1, "同一标题跨源出现只保留一条")
+    check(not any(t.endswith("301关税措施") for t in titles), "只差后缀的近似标题也被判重")
 
     by_title = {i["title"]: i for i in items}
     tariff = by_title["商务部：坚决反对美对中国等经济体加征301关税"]

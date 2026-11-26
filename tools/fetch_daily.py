@@ -64,7 +64,8 @@ TOPICS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("消费", ("白酒", "消费", "食品", "饮料", "零售", "旅游", "免税", "家电")),
     ("医药", ("医药", "创新药", "医疗", "集采", "疫苗", "生物")),
     ("地产", ("房地产", "地产", "楼市", "住房", "物业")),
-    ("金融", ("银行", "券商", "保险", "基金", "IPO", "上市", "并购", "重组", "债券")),
+    ("金融", ("银行", "券商", "保险", "基金", "IPO", "上市", "并购", "重组", "债券",
+              "瑞银", "汇丰", "高盛", "摩根", "花旗", "评级", "回购")),
     ("海外", ("美国", "美联储", "欧洲", "日本", "关税", "特朗普", "俄", "乌克兰",
               "中东", "伊朗", "OPEC", "原油")),
 )
@@ -213,22 +214,32 @@ def _title_key(title: str) -> str:
     return re.sub(r"[\s\u3000·、，,。.:：;；!！?？\"'“”‘’()（）\[\]【】—\-]+", "", title).lower()
 
 
+def _near_duplicate(a: str, b: str) -> bool:
+    """同一条新闻经常被两个源以「多/少一个前缀」的标题各发一次。"""
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= 8 and short in long and len(short) / len(long) >= 0.8
+
+
 def build_items(entries: list[dict], now: datetime, window_min: int) -> list[dict]:
     """按窗口过滤、去重、排序，输出 feed 条目（无 url 字段）。"""
     cutoff = now - timedelta(minutes=window_min + 5)
     future = now + timedelta(minutes=FUTURE_TOLERANCE_MIN)
 
-    seen: dict[str, dict] = {}
-    for entry in entries:
+    # 新的在前：先去重，保证同一条新闻留下最新（通常也是最完整）的那版。
+    ordered = sorted(entries, key=lambda e: e["epoch"], reverse=True)
+    kept: list[dict] = []
+    keys: list[str] = []
+    for entry in ordered:
         dt = datetime.fromtimestamp(entry["epoch"], TZ8)
         if dt < cutoff or dt > future:
             continue
         key = _title_key(entry["title"])
-        if not key:
+        if not key or any(_near_duplicate(key, seen) for seen in keys):
             continue
-        if key in seen and seen[key]["_dt"] >= dt:
-            continue
-        seen[key] = {
+        keys.append(key)
+        kept.append({
             "id": hashlib.sha1(key.encode("utf-8")).hexdigest()[:8],
             "title": entry["title"],
             "one_line": entry["summary"],
@@ -236,15 +247,10 @@ def build_items(entries: list[dict], now: datetime, window_min: int) -> list[dic
             "time": dt.isoformat(timespec="seconds"),
             "time_grade": "EXACT",
             "tags": entry["tags"],
-            "_dt": dt,
-        }
+            # 明确不携带链接：即便上游给了也不要。
+        })
 
-    items = sorted(seen.values(), key=lambda i: i["_dt"], reverse=True)[:MAX_ITEMS]
-    for item in items:
-        item.pop("_dt", None)
-        # 明确不携带链接：即便上游给了也不要。
-        item.pop("url", None)
-    return items
+    return kept[:MAX_ITEMS]
 
 
 def build_feed(payloads: list[tuple[str, dict]], now: datetime, window_min: int) -> tuple[dict, list]:
