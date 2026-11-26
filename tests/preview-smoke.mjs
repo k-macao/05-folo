@@ -13,7 +13,14 @@ const dir = path.join(root, 'preview');
 const html = fs.readFileSync(path.join(dir, 'index.html'), 'utf8');
 const app = fs.readFileSync(path.join(dir, 'app.js'), 'utf8');
 // 固定夹具：每日新闻会换内容，冒烟测试不能依赖当天的 feed.json。
-const feed = fs.readFileSync(path.join(root, 'tests/fixtures/preview-feed.json'), 'utf8');
+// 想用当天真实 feed 跑一遍：FEED_PATH=preview/feed.json node tests/preview-smoke.mjs
+const feedPath = process.env.FEED_PATH
+  ? path.resolve(root, process.env.FEED_PATH)
+  : path.join(root, 'tests/fixtures/preview-feed.json');
+const feed = fs.readFileSync(feedPath, 'utf8');
+const feedObj = JSON.parse(feed);
+const total = Math.min(feedObj.items.length, 12);
+const second = feedObj.items[1] || feedObj.items[0];
 
 const errors = [];
 const vc = new VirtualConsole();
@@ -45,20 +52,20 @@ check(text().includes('章鱼AI'), 'boot: message mentions 005');
 
 await wait(1600);
 check(text().includes('[EXACT]'), 'list: grade badges rendered');
-check(text().includes('国常会'), 'list: first title rendered');
-check(/1\/8/.test(text()), 'list: footer shows 1/8');
+check(text().includes(second.title.slice(0, 6)), 'list: titles rendered');
+check(new RegExp(`1/${total}`).test(text()), `list: footer shows 1/${total}`);
 check(screen.querySelectorAll('.band').length === 1, 'list: exactly one selected row band');
 
 key('ArrowDown');
 key('ArrowUp', 'keyup');
 await wait(20);
-check(/2\/8/.test(text()), 'list: ArrowDown moves selection to 2/8');
+check(new RegExp(`2/${total}`).test(text()), `list: ArrowDown moves selection to 2/${total}`);
 
 key('Enter');
 key('Enter', 'keyup');
 await wait(20);
 check(text().includes('摘要'), 'detail: Enter opens detail');
-check(text().includes('北方稀土'), 'detail: quote line present');
+check(text().includes('来源'), 'detail: source line present');
 check(screen.querySelectorAll('.chip').length >= 1, 'detail: reverse-video chips drawn');
 check(!text().includes('http'), 'detail: no original link on screen');
 
