@@ -79,6 +79,50 @@ def main():
     check("http://" not in payload and "https://" not in payload, "feed 里没有任何 URL")
     check(not any("url" in i for i in items), "条目没有 url 字段")
 
+    # 同一家媒体不会刷屏：6 条上限
+    headlines = [
+        "国务院部署新一轮设备更新与消费品以旧换新",
+        "央行开展七千亿元买断式逆回购操作",
+        "沪指收盘涨零点八个百分点 成交额放大",
+        "多家银行下调存款挂牌利率",
+        "新能源车十月销量同比增长三成",
+        "光伏组件价格环比继续走低",
+        "科创板新股上市首日涨逾一倍",
+        "海关总署公布前十个月进出口数据",
+        "商务部回应欧盟对华电动汽车反补贴调查",
+        "医保谈判结果公布 创新药平均降价",
+        "北方多个省份启动供暖季保供",
+        "航运指数连续三周回落",
+        "黄金价格创下阶段新高",
+        "人民币对美元中间价小幅上调",
+        "两部门发文规范平台经济收费",
+        "半导体设备招标额同比增长",
+        "水泥行业错峰生产范围扩大",
+        "猪肉价格连续两个月回落",
+    ]
+    flood = [{
+        "title": headlines[i],
+        "summary": "占位摘要，用于验证单源上限。",
+        "source": "刷屏媒体",
+        "epoch": int(NOW.timestamp()) - i * 60,
+        "tags": ["市场"],
+    } for i in range(9)]
+    others = [{
+        "title": headlines[9 + i],
+        "summary": "占位摘要。",
+        "source": f"媒体{i}",
+        "epoch": int(NOW.timestamp()) - (i + 1) * 120,
+        "tags": ["财经"],
+    } for i in range(9)]
+    balanced = fetch_daily.build_items(flood + others, NOW, 1440)
+    counts = {}
+    for item in balanced:
+        counts[item["source_name"]] = counts.get(item["source_name"], 0) + 1
+    check(len(balanced) == 12, f"单源上限后仍凑满 12 条（实际 {len(balanced)}）")
+    check(counts.get("刷屏媒体") == 6, f"同一家媒体最多 6 条（实际 {counts.get('刷屏媒体')}）")
+    times = [i["time"] for i in balanced]
+    check(times == sorted(times, reverse=True), "单源上限后仍按时间倒序")
+
     # 时间窗收窄后只剩最近一小时的条目
     narrow, _ = fetch_daily.build_feed(payloads(), NOW, 60)
     check(len(narrow["items"]) == 2, f"60 分钟窗口只剩 2 条（实际 {len(narrow['items'])}）")

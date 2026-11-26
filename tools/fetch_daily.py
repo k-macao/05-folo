@@ -48,6 +48,7 @@ UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
 DEFAULT_WINDOW_MIN = 1440          # 一天
 DEFAULT_MIN_ITEMS = 3              # 少于这个数就认为这轮抓取不可用，保留旧 feed
 MAX_ITEMS = 12                     # 与屏幕 / 固件一致
+MAX_PER_SOURCE = 6                 # 同一家媒体最多占几行，避免整屏都是一家
 FUTURE_TOLERANCE_MIN = 10          # 源站时钟漂移容忍度
 
 # 标签只做关键词归类，不做情绪判断（没有 AI 时不要假装有）。
@@ -241,7 +242,7 @@ def build_items(entries: list[dict], now: datetime, window_min: int) -> list[dic
 
     # 新的在前：先去重，保证同一条新闻留下最新（通常也是最完整）的那版。
     ordered = sorted(entries, key=lambda e: e["epoch"], reverse=True)
-    kept: list[dict] = []
+    unique: list[dict] = []
     keys: list[str] = []
     for entry in ordered:
         dt = datetime.fromtimestamp(entry["epoch"], TZ8)
@@ -251,7 +252,7 @@ def build_items(entries: list[dict], now: datetime, window_min: int) -> list[dic
         if not key or any(_near_duplicate(key, seen) for seen in keys):
             continue
         keys.append(key)
-        kept.append({
+        unique.append({
             "id": hashlib.sha1(key.encode("utf-8")).hexdigest()[:8],
             "title": entry["title"],
             "one_line": entry["summary"],
@@ -262,7 +263,23 @@ def build_items(entries: list[dict], now: datetime, window_min: int) -> list[dic
             # 明确不携带链接：即便上游给了也不要。
         })
 
-    return kept[:MAX_ITEMS]
+    # 同一家媒体最多 MAX_PER_SOURCE 条；不够 12 条时再用被挤掉的条目按时间补齐。
+    picked: list[dict] = []
+    overflow: list[dict] = []
+    per_source: dict[str, int] = {}
+    for item in unique:
+        used = per_source.get(item["source_name"], 0)
+        if used >= MAX_PER_SOURCE:
+            overflow.append(item)
+            continue
+        per_source[item["source_name"]] = used + 1
+        picked.append(item)
+
+    if len(picked) < MAX_ITEMS:
+        picked.extend(overflow[:MAX_ITEMS - len(picked)])
+
+    picked.sort(key=lambda i: i["time"], reverse=True)
+    return picked[:MAX_ITEMS]
 
 
 def build_feed(payloads: list[tuple[str, dict]], now: datetime, window_min: int) -> tuple[dict, list]:
